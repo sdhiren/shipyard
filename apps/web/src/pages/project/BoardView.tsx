@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import { api } from '../../api/client';
 import { useDecide, useItems, useItemRuns } from '../../api/hooks';
 import { EffortBadge, PrBadge, PriorityIcon, ScoreBadge, StatusDot, TypeIcon } from '../../components/domain';
-import { useUi } from '../../components/Layout';
+import { useUi } from '../../lib/ui-context';
 import { Spinner } from '../../components/ui';
 import { cn } from '../../lib/utils';
 

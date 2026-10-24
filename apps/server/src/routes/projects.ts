@@ -16,7 +16,7 @@ const csv = <T extends readonly [string, ...string[]]>(values: T) =>
 
 export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/projects', async (req) => {
-    const q = z.object({ archived: z.coerce.boolean().optional() }).parse(req.query);
+    const q = z.object({ archived: z.enum(['true', 'false']).optional().transform((v) => v === 'true') }).parse(req.query);
     return listProjects({ includeArchived: q.archived });
   });
 
@@ -32,7 +32,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.patch('/api/projects/:id', async (req) => updateProject(idParams.parse(req.params).id, updateProjectSchema.parse(req.body)));
 
   app.delete('/api/projects/:id', async (req, reply) => {
-    deleteProject(idParams.parse(req.params).id);
+    await deleteProject(idParams.parse(req.params).id);
     return reply.code(204).send();
   });
 

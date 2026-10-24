@@ -43,7 +43,7 @@ import { useAction, useDecide, useItem, useItemActivity, useItemRuns, useProject
 import { cn, formatCost, formatDuration, timeAgo } from '../lib/utils';
 import { EffortBadge, Md, PrBadge, PriorityIcon, RunStatusIcon, ScoreBadge, StatusBadge, TypeIcon } from './domain';
 import { RunLog } from './RunLog';
-import { Badge, Button, Dialog, Field, Input, Menu, Spinner, Tabs, Textarea } from './ui';
+import { Badge, Button, ConfirmDialog, Dialog, Field, Input, Menu, Spinner, Tabs, Textarea } from './ui';
 
 type Tab = 'overview' | 'activity' | 'runs' | 'diff';
 
@@ -378,20 +378,28 @@ function ActionBar({ item, busy, onShowDiff }: { item: BacklogItem; busy: boolea
       <ConfirmDialog
         open={dialog === 'merge'}
         title={`Squash-merge PR #${item.pr?.number}?`}
-        description="This merges into the default branch on GitHub and deletes the remote branch."
-        confirm="Squash & merge"
+        confirmLabel="Squash & merge"
         onClose={() => setDialog(null)}
-        onConfirm={() => api.mergePr(item.id).then(() => undefined)}
-      />
+        onConfirm={() => api.mergePr(item.id)}
+      >
+        <p>
+          All commits on <code className="font-mono text-fg">{item.branch}</code> are squashed into one commit on the default branch on GitHub, and the remote
+          branch is deleted. The item moves to Done.
+        </p>
+      </ConfirmDialog>
       <ConfirmDialog
         open={dialog === 'delete'}
-        title="Delete permanently?"
-        description="The item and its timeline are removed for good. Runs and branches are not affected."
-        confirm="Delete"
-        danger
+        tone="danger"
+        title={`Delete ${item.key} permanently?`}
+        confirmLabel="Delete permanently"
         onClose={() => setDialog(null)}
-        onConfirm={() => del.mutateAsync(undefined).then(() => undefined)}
-      />
+        onConfirm={() => del.mutateAsync(undefined)}
+      >
+        <p>
+          <span className="text-fg">“{item.title}”</span> and its timeline are removed from Shipyard for good. Claude run logs, branches and pull requests are not
+          affected.
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }
@@ -423,42 +431,6 @@ function ReasonDialog(props: { open: boolean; title: string; description: string
       }
     >
       <Textarea autoFocus placeholder="Reason (optional)" value={reason} onChange={(e) => setReason(e.target.value)} />
-    </Dialog>
-  );
-}
-
-function ConfirmDialog(props: { open: boolean; title: string; description: string; confirm: string; danger?: boolean; onClose: () => void; onConfirm: () => Promise<void> }) {
-  const [loading, setLoading] = useState(false);
-  return (
-    <Dialog
-      open={props.open}
-      onClose={props.onClose}
-      title={props.title}
-      description={props.description}
-      footer={
-        <>
-          <Button variant="ghost" onClick={props.onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant={props.danger ? 'danger' : 'primary'}
-            loading={loading}
-            onClick={async () => {
-              setLoading(true);
-              try {
-                await props.onConfirm();
-                props.onClose();
-              } finally {
-                setLoading(false);
-              }
-            }}
-          >
-            {props.confirm}
-          </Button>
-        </>
-      }
-    >
-      <p className="text-sm text-muted">This can't be undone from Shipyard.</p>
     </Dialog>
   );
 }

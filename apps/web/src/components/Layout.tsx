@@ -15,30 +15,18 @@ import {
   Sun,
   Terminal,
 } from 'lucide-react';
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useHealth, useProjects } from '../api/hooks';
 import { useLiveConnection, useLiveUpdates } from '../api/live';
+import { UiContext, useUi, type Ui } from '../lib/ui-context';
 import { cn, isTypingTarget } from '../lib/utils';
 import { AddProjectDialog } from './dialogs/AddProjectDialog';
 import { NewItemDialog } from './dialogs/NewItemDialog';
 import { ProjectDot } from './domain';
 import { ItemDrawer } from './ItemDrawer';
 import { Kbd } from './ui';
-
-// ---------------------------------------------------------------------------
-// App-wide UI actions
-// ---------------------------------------------------------------------------
-
-interface Ui {
-  openItem: (id: string) => void;
-  newItem: (opts?: { projectId?: string; status?: ItemStatus }) => void;
-  addProject: () => void;
-  openPalette: () => void;
-}
-const UiContext = createContext<Ui | null>(null);
-export const useUi = () => useContext(UiContext)!;
 
 function useTheme(): [string, () => void] {
   const [theme, setTheme] = useState(() => {

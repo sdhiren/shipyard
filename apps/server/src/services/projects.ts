@@ -10,14 +10,14 @@ import {
   type ProjectWithStats,
   type UpdateProjectInput,
 } from '@shipyard/shared';
-import { and, eq, inArray, sql } from 'drizzle-orm';
-import { expandHome } from '../config.js';
+import { and, eq, inArray, isNotNull, sql } from 'drizzle-orm';
+import { config, expandHome } from '../config.js';
 import { db } from '../db/client.js';
 import { items, projects, runs, type ProjectRow } from '../db/schema.js';
 import { bus } from '../lib/events.js';
 import { badRequest, conflict, keyPrefixFor, newId, notFound, now, pickColor, slugify } from '../lib/util.js';
 import { createItem } from './items.js';
-import { getGitInfo } from './git.js';
+import { getGitInfo, removeWorktree } from './git.js';
 import { listOpenIssues } from './github.js';
 import { toProject } from './mappers.js';
 import { discoverRepos, detectStack, scanBacklogFiles, scanTodoComments, suggestAllowedTools, suggestTestCommand, type RawImport } from './scanner.js';
@@ -155,14 +155,33 @@ export async function rescanProject(id: string): Promise<Project> {
   return getProject(id);
 }
 
-export function deleteProject(id: string): void {
-  getProjectRow(id);
+/**
+ * Delete Shipyard's records for a project and the worktrees Shipyard created
+ * for it. The repository itself, including its branches, is never modified.
+ */
+export async function deleteProject(id: string): Promise<void> {
+  const row = getProjectRow(id);
   const busy = db
     .select({ id: runs.id })
     .from(runs)
     .where(and(eq(runs.projectId, id), inArray(runs.status, ACTIVE_RUN_STATUSES)))
     .get();
-  if (busy) throw conflict('Cancel the active runs for this project first');
+  if (busy) throw conflict('Claude is still working on this project. Stop its active runs first.');
+
+  const worktrees = db
+    .select({ path: items.worktreePath })
+    .from(items)
+    .where(and(eq(items.projectId, id), isNotNull(items.worktreePath)))
+    .all();
+  for (const wt of worktrees) {
+    await removeWorktree(row.path, wt.path!).catch(() => undefined);
+  }
+  // Only ever delete inside Shipyard's own worktrees folder.
+  const projectWorktrees = path.join(config.worktreesDir, row.slug);
+  if (projectWorktrees.startsWith(config.worktreesDir + path.sep)) {
+    await fs.rm(projectWorktrees, { recursive: true, force: true });
+  }
+
   db.delete(projects).where(eq(projects.id, id)).run();
   bus.publish({ type: 'project.changed', projectId: id });
 }

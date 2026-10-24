@@ -133,9 +133,31 @@ describe('Shipyard API', () => {
     expect(d.throughput).toHaveLength(8);
   });
 
+  it('archives and restores a project without losing data', async () => {
+    await app.inject({ method: 'PATCH', url: `/api/projects/${projectId}`, headers: H, payload: { archived: true } });
+    expect((await app.inject({ url: '/api/projects' })).json()).toHaveLength(0);
+    expect((await app.inject({ url: '/api/projects?archived=false' })).json()).toHaveLength(0);
+    const all = (await app.inject({ url: '/api/projects?archived=true' })).json();
+    expect(all).toHaveLength(1);
+    expect(all[0].archived).toBe(true);
+
+    await app.inject({ method: 'PATCH', url: `/api/projects/${projectId}`, headers: H, payload: { archived: false } });
+    expect((await app.inject({ url: '/api/projects' })).json()).toHaveLength(1);
+    expect((await app.inject({ url: `/api/projects/${projectId}/items?status=backlog` })).json().length).toBeGreaterThan(0);
+  });
+
   it('returns 400 with details for invalid input', async () => {
     const res = await app.inject({ method: 'POST', url: `/api/projects/${projectId}/items`, headers: H, payload: { title: 'x' } });
     expect(res.statusCode).toBe(400);
     expect(res.json().issues[0].path).toEqual(['title']);
+  });
+
+  it('removes a project and its records but leaves the repository alone', async () => {
+    const res = await app.inject({ method: 'DELETE', url: `/api/projects/${projectId}`, headers: H });
+    expect(res.statusCode).toBe(204);
+    expect((await app.inject({ url: `/api/projects/${projectId}` })).statusCode).toBe(404);
+    expect((await app.inject({ url: '/api/dashboard' })).json().totals.projects).toBe(0);
+    expect(fs.existsSync(path.join(repo, 'README.md'))).toBe(true);
+    expect(execFileSync('git', ['log', '--oneline'], { cwd: repo }).toString()).toContain('init');
   });
 });

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useDashboard, useProjects } from '../api/hooks';
 import { Md, ProjectDot, RunStatusIcon } from '../components/domain';
 import { ItemRow } from '../components/ItemRow';
-import { useUi } from '../components/Layout';
+import { useUi } from '../lib/ui-context';
 import { Button, Card, EmptyState, Spinner, Stat } from '../components/ui';
 import { formatCost, timeAgo } from '../lib/utils';
 

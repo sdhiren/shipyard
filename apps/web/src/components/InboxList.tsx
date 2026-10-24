@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { useBulkDecide, useDecide } from '../api/hooks';
 import { cn, isTypingTarget } from '../lib/utils';
 import { EffortBadge, Md, PriorityIcon, ScoreBadge, TypeIcon } from './domain';
-import { useUi } from './Layout';
+import { useUi } from '../lib/ui-context';
 import { Badge, Button, EmptyState, Kbd } from './ui';
 
 /**

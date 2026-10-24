@@ -1,4 +1,4 @@
-import { LoaderCircle, X } from 'lucide-react';
+import { LoaderCircle, TriangleAlert, X } from 'lucide-react';
 import {
   forwardRef,
   useEffect,
@@ -17,7 +17,7 @@ import { cn } from '../../lib/utils';
 // Button
 // ---------------------------------------------------------------------------
 
-type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'success';
+type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'destructive' | 'success';
 type ButtonSize = 'xs' | 'sm' | 'md';
 
 const VARIANTS: Record<ButtonVariant, string> = {
@@ -25,6 +25,7 @@ const VARIANTS: Record<ButtonVariant, string> = {
   secondary: 'bg-raised text-fg border border-line hover:bg-hover hover:border-line-strong',
   ghost: 'text-muted hover:text-fg hover:bg-hover',
   danger: 'bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20',
+  destructive: 'bg-red-600 text-white hover:bg-red-500 shadow-sm',
   success: 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20',
 };
 const SIZES: Record<ButtonSize, string> = {
@@ -86,7 +87,7 @@ export function Select({ className, children, ...rest }: SelectHTMLAttributes<HT
   );
 }
 
-export function Field({ label, hint, children, className }: { label: string; hint?: ReactNode; children: ReactNode; className?: string }) {
+export function Field({ label, hint, children, className }: { label: ReactNode; hint?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <label className={cn('flex flex-col gap-1.5', className)}>
       <span className="text-xs font-medium text-muted">{label}</span>
@@ -98,9 +99,9 @@ export function Field({ label, hint, children, className }: { label: string; hin
 
 export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (v: boolean) => void; label?: ReactNode }) {
   return (
-    <button type="button" onClick={() => onChange(!checked)} className="inline-flex items-center gap-2 text-sm text-fg">
-      <span className={cn('relative h-5 w-9 rounded-full transition-colors', checked ? 'bg-accent' : 'bg-line-strong')}>
-        <span className={cn('absolute top-0.5 size-4 rounded-full bg-white shadow transition-transform', checked ? 'translate-x-4.5' : 'translate-x-0.5')} />
+    <button type="button" role="switch" aria-checked={checked} onClick={() => onChange(!checked)} className="inline-flex items-center gap-2.5 text-left text-sm text-fg">
+      <span className={cn('relative inline-block h-5 w-9 shrink-0 rounded-full transition-colors', checked ? 'bg-accent' : 'bg-line-strong')}>
+        <span className={cn('absolute top-0.5 left-0.5 size-4 rounded-full bg-white shadow transition-transform', checked && 'translate-x-4')} />
       </span>
       {label}
     </button>
@@ -202,6 +203,117 @@ export function Dialog({
       </div>
     </div>,
     document.body,
+  );
+}
+
+/**
+ * In-app replacement for window.confirm(). Stays open and shows the error if
+ * the action fails; `requireText` adds a type-to-confirm guard for destructive
+ * actions that can't be undone.
+ */
+export function ConfirmDialog({
+  open,
+  onClose,
+  onConfirm,
+  title,
+  description,
+  children,
+  confirmLabel,
+  tone = 'default',
+  requireText,
+  secondaryAction,
+  width,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => Promise<unknown> | unknown;
+  title: ReactNode;
+  description?: ReactNode;
+  children?: ReactNode;
+  confirmLabel: string;
+  tone?: 'default' | 'danger';
+  requireText?: string;
+  /** e.g. a safer alternative such as "Archive instead". */
+  secondaryAction?: ReactNode;
+  width?: string;
+}) {
+  const [typed, setTyped] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      setTyped('');
+      setError(null);
+      setBusy(false);
+    }
+  }, [open]);
+  const ready = !requireText || typed.trim() === requireText;
+  const run = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await onConfirm();
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Dialog
+      open={open}
+      onClose={busy ? () => undefined : onClose}
+      title={
+        <span className="flex items-center gap-2.5">
+          {tone === 'danger' && (
+            <span className="flex size-7 items-center justify-center rounded-full bg-red-500/10 text-red-500">
+              <TriangleAlert className="size-4" />
+            </span>
+          )}
+          {title}
+        </span>
+      }
+      description={description}
+      width={width}
+      footer={
+        <>
+          {secondaryAction && <div className="mr-auto">{secondaryAction}</div>}
+          <Button variant="ghost" onClick={onClose} disabled={busy}>
+            Cancel
+          </Button>
+          <Button variant={tone === 'danger' ? 'destructive' : 'primary'} loading={busy} disabled={!ready} onClick={() => void run()}>
+            {confirmLabel}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-4 text-sm text-muted">
+        {children}
+        {requireText && (
+          <Field
+            label={
+              <>
+                Type <code className="rounded bg-hover px-1 py-0.5 font-mono text-fg">{requireText}</code> to confirm
+              </>
+            }
+          >
+            <Input
+              autoFocus
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && void run()}
+              autoComplete="off"
+              spellCheck={false}
+              className="font-mono text-xs"
+            />
+          </Field>
+        )}
+        {error && <p className="rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2 text-xs text-red-400">{error}</p>}
+      </div>
+    </Dialog>
   );
 }
 

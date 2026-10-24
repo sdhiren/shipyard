@@ -1,14 +1,15 @@
-import { Ellipsis, ExternalLink, Gauge, Import, Inbox, Kanban, List, Pin, Plus, RefreshCw, Search, Settings, Sparkles } from 'lucide-react';
+import { Archive, ArchiveRestore, Ellipsis, FolderX, Trash2, ExternalLink, Gauge, Import, Inbox, Kanban, List, Pin, Plus, RefreshCw, Search, Settings, Sparkles } from 'lucide-react';
 import { useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import { useAction, useAnalyses, useItems, useProject, useProjects } from '../../api/hooks';
 import { ProjectDot } from '../../components/domain';
 import { AnalyzeDialog } from '../../components/dialogs/AnalyzeDialog';
 import { ImportDialog } from '../../components/dialogs/ImportDialog';
+import { RemoveProjectDialog, useArchiveProject, useRestoreProject } from '../../components/dialogs/ProjectLifecycle';
 import { InboxList } from '../../components/InboxList';
-import { useUi } from '../../components/Layout';
-import { Badge, Button, Input, Menu, Spinner, Tabs } from '../../components/ui';
+import { useUi } from '../../lib/ui-context';
+import { Badge, Button, EmptyState, Input, Menu, Spinner, Tabs } from '../../components/ui';
 import { BoardView } from './BoardView';
 import { InsightsView } from './InsightsView';
 import { ListView } from './ListView';
@@ -25,13 +26,16 @@ export function ProjectPage() {
       p.set('tab', t);
       return p;
     });
-  const { data: project, isLoading } = useProject(projectId);
+  const { data: project, isLoading, error } = useProject(projectId);
   const { data: projects } = useProjects();
   const { data: inbox } = useItems(projectId, { status: ['proposed'] });
   const { data: analyses } = useAnalyses(projectId);
   const [search, setSearch] = useState('');
   const [analyze, setAnalyze] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [removing, setRemoving] = useState(false);
+  const archive = useArchiveProject();
+  const restore = useRestoreProject();
   const ui = useUi();
   const stats = projects?.find((p) => p.id === projectId)?.stats;
   const analysing = analyses?.some((a) => a.status === 'running' || a.status === 'queued');
@@ -39,10 +43,35 @@ export function ProjectPage() {
   const rescan = useAction(() => api.rescanProject(projectId!), { success: 'Rescanned repository', invalidate: [['project', projectId], ['projects']] });
   const pin = useAction(() => api.updateProject(projectId!, { pinned: !project?.pinned }), { invalidate: [['project', projectId], ['projects']] });
 
+  if (error && !project) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <EmptyState
+          icon={<FolderX className="size-5" />}
+          title="Project not found"
+          description="It may have been removed from Shipyard. Your repository on disk is unaffected."
+          action={
+            <Link to="/">
+              <Button variant="primary">Go to dashboard</Button>
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
   if (isLoading || !project) return <Spinner className="m-8" />;
 
   return (
     <div className="flex h-full flex-col">
+      {project.archived && (
+        <div className="flex items-center gap-3 border-b border-amber-500/20 bg-amber-500/5 px-6 py-2 text-sm text-amber-400">
+          <Archive className="size-4" />
+          This project is archived. It's hidden from the sidebar and dashboard.
+          <Button size="xs" className="ml-auto" icon={<ArchiveRestore className="size-3" />} onClick={() => void restore(project)}>
+            Restore
+          </Button>
+        </div>
+      )}
       <header className="px-6 pt-6">
         <div className="flex items-start gap-3">
           <ProjectDot color={project.color} className="mt-2 size-3.5" />
@@ -83,6 +112,11 @@ export function ProjectPage() {
                 { label: 'Rescan repository', icon: <RefreshCw className="size-3.5" />, onSelect: () => rescan.mutate(undefined) },
                 { label: project.pinned ? 'Unpin' : 'Pin to top', icon: <Pin className="size-3.5" />, onSelect: () => pin.mutate(undefined) },
                 { label: 'Project settings', icon: <Settings className="size-3.5" />, onSelect: () => setTab('settings') },
+                'separator',
+                project.archived
+                  ? { label: 'Restore project', icon: <ArchiveRestore className="size-3.5" />, onSelect: () => void restore(project) }
+                  : { label: 'Archive project', icon: <Archive className="size-3.5" />, onSelect: () => void archive(project) },
+                { label: 'Remove from Shipyard…', icon: <Trash2 className="size-3.5" />, onSelect: () => setRemoving(true), danger: true },
               ]}
             />
           </div>
@@ -130,6 +164,7 @@ export function ProjectPage() {
 
       <AnalyzeDialog open={analyze} onClose={() => setAnalyze(false)} project={project} />
       <ImportDialog open={importing} onClose={() => setImporting(false)} projectId={project.id} />
+      <RemoveProjectDialog project={project} open={removing} onClose={() => setRemoving(false)} />
     </div>
   );
 }

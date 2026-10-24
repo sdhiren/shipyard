@@ -1,8 +1,9 @@
 import type { Project, ProjectSettings as Settings } from '@shipyard/shared';
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Archive, ArchiveRestore, Trash2 } from 'lucide-react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../../api/client';
 import { useAction } from '../../api/hooks';
+import { RemoveProjectDialog, useArchiveProject, useRestoreProject } from '../../components/dialogs/ProjectLifecycle';
 import { Button, Card, Field, Input, Select, Textarea, Toggle } from '../../components/ui';
 
 /** Per-project knobs for how Claude works on this repository. */
@@ -11,14 +12,15 @@ export function ProjectSettings({ project }: { project: Project }) {
   const [name, setName] = useState(project.name);
   const [description, setDescription] = useState(project.description);
   const [color, setColor] = useState(project.color);
-  const navigate = useNavigate();
   useEffect(() => setS(project.settings), [project.settings]);
 
   const save = useAction(() => api.updateProject(project.id, { name, description, color, settings: s }), {
     success: 'Project settings saved',
     invalidate: [['project', project.id], ['projects']],
   });
-  const remove = useAction(() => api.deleteProject(project.id), { success: 'Project removed from Shipyard', invalidate: [['projects']] });
+  const [removing, setRemoving] = useState(false);
+  const archive = useArchiveProject();
+  const restore = useRestoreProject();
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS((p) => ({ ...p, [k]: v }));
 
   return (
@@ -104,19 +106,61 @@ export function ProjectSettings({ project }: { project: Project }) {
         </div>
       </Card>
 
-      <div className="flex items-center justify-between">
-        <Button
-          variant="danger"
-          onClick={() => {
-            if (confirm(`Remove ${project.name} from Shipyard? Your repository is not touched.`)) remove.mutate(undefined, { onSuccess: () => navigate('/') });
-          }}
-        >
-          Remove project
-        </Button>
+      <div className="flex justify-end">
         <Button variant="primary" loading={save.isPending} onClick={() => save.mutate(undefined)}>
           Save changes
         </Button>
       </div>
+
+      <Card className="divide-y divide-line border-red-500/25">
+        <div className="px-5 py-3">
+          <h3 className="text-sm font-semibold text-red-400">Danger zone</h3>
+        </div>
+        {project.archived ? (
+          <DangerRow
+            title="Restore project"
+            description="Bring it back to the sidebar and dashboard."
+            action={
+              <Button icon={<ArchiveRestore className="size-3.5" />} onClick={() => void restore(project)}>
+                Restore
+              </Button>
+            }
+          />
+        ) : (
+          <DangerRow
+            title="Archive project"
+            description="Hide it from the sidebar and dashboard. Its backlog and history are kept, and you can restore it from Settings."
+            action={
+              <Button icon={<Archive className="size-3.5" />} onClick={() => void archive(project)}>
+                Archive
+              </Button>
+            }
+          />
+        )}
+        <DangerRow
+          title="Remove from Shipyard"
+          description="Permanently delete its backlog, history and Claude run logs from Shipyard. Your repository is never touched."
+          action={
+            <Button variant="danger" icon={<Trash2 className="size-3.5" />} onClick={() => setRemoving(true)}>
+              Remove…
+            </Button>
+          }
+        />
+      </Card>
+
+      <RemoveProjectDialog project={project} open={removing} onClose={() => setRemoving(false)} />
+    </div>
+  );
+}
+
+function DangerRow({ title, description, action }: { title: string; description: string; action: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-6 px-5 py-4">
+      <div>
+        <div className="text-sm font-medium text-fg">{title}</div>
+        <p className="mt-0.5 text-xs text-muted">{description}</p>
+      </div>
+      {action}
     </div>
   );
 }

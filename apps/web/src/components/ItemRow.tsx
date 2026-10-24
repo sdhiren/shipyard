@@ -3,7 +3,7 @@ import { AlarmClock, GitBranch } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn, timeAgo } from '../lib/utils';
 import { EffortBadge, PrBadge, PriorityIcon, ScoreBadge, StatusDot, TypeIcon } from './domain';
-import { useUi } from './Layout';
+import { useUi } from '../lib/ui-context';
 
 /** Compact single-line item used by lists, dashboards and the inbox. */
 export function ItemRow({

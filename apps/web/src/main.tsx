@@ -5,6 +5,7 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { Layout } from './components/Layout';
 import { DashboardPage } from './pages/DashboardPage';
+import { ErrorPage } from './pages/ErrorPage';
 import { InboxPage } from './pages/InboxPage';
 import { ProjectPage } from './pages/project/ProjectPage';
 import { RunsPage } from './pages/RunsPage';
@@ -21,12 +22,14 @@ const queryClient = new QueryClient({
 const router = createBrowserRouter([
   {
     element: <Layout />,
+    errorElement: <ErrorPage />,
     children: [
       { path: '/', element: <DashboardPage /> },
       { path: '/inbox', element: <InboxPage /> },
       { path: '/runs', element: <RunsPage /> },
       { path: '/settings', element: <SettingsPage /> },
       { path: '/projects/:projectId', element: <ProjectPage /> },
+      { path: '*', element: <ErrorPage /> },
     ],
   },
 ]);

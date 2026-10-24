@@ -1,9 +1,15 @@
 import type { GlobalSettings } from '@shipyard/shared';
-import { CircleCheck, CircleX, RefreshCw } from 'lucide-react';
+import type { Project } from '@shipyard/shared';
+import { useQuery } from '@tanstack/react-query';
+import { ArchiveRestore, CircleCheck, CircleX, RefreshCw, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
 import { useAction, useHealth, useSettings } from '../api/hooks';
+import { RemoveProjectDialog, useRestoreProject } from '../components/dialogs/ProjectLifecycle';
+import { ProjectDot } from '../components/domain';
 import { Button, Card, Field, Input, Select, Spinner, Textarea } from '../components/ui';
+import { timeAgo } from '../lib/utils';
 
 function Check({ ok, label, fix }: { ok: boolean; label: string; fix: string }) {
   return (
@@ -106,6 +112,47 @@ export function SettingsPage() {
           Save settings
         </Button>
       </div>
+
+      <ArchivedProjects />
     </div>
+  );
+}
+
+function ArchivedProjects() {
+  const { data } = useQuery({ queryKey: ['projects', 'archived'], queryFn: () => api.projects(true) });
+  const restore = useRestoreProject();
+  const [removing, setRemoving] = useState<Project | null>(null);
+  const archived = data?.filter((p) => p.archived) ?? [];
+
+  return (
+    <Card>
+      <div className="border-b border-line px-5 py-3">
+        <h3 className="text-sm font-semibold">Archived projects</h3>
+        <p className="text-xs text-muted">Hidden from the sidebar and dashboard. Their backlog and history are kept.</p>
+      </div>
+      {archived.length === 0 ? (
+        <p className="px-5 py-4 text-sm text-faint">No archived projects.</p>
+      ) : (
+        <ul className="divide-y divide-line">
+          {archived.map((p) => (
+            <li key={p.id} className="flex items-center gap-3 px-5 py-3">
+              <ProjectDot color={p.color} />
+              <div className="min-w-0 flex-1">
+                <Link to={`/projects/${p.id}`} className="text-sm text-fg hover:underline">
+                  {p.name}
+                </Link>
+                <div className="truncate font-mono text-[11px] text-faint">{p.path}</div>
+              </div>
+              <span className="text-xs text-faint">archived {timeAgo(p.updatedAt)}</span>
+              <Button size="sm" icon={<ArchiveRestore className="size-3.5" />} onClick={() => void restore(p)}>
+                Restore
+              </Button>
+              <Button size="sm" variant="ghost" icon={<Trash2 className="size-3.5" />} onClick={() => setRemoving(p)} aria-label={`Remove ${p.name}`} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {removing && <RemoveProjectDialog project={removing} open stayOnPage onClose={() => setRemoving(null)} />}
+    </Card>
   );
 }
