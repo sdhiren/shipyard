@@ -1,0 +1,26 @@
+{
+  "name": "shipyard",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Mission control for your side projects: backlog, AI ideation, Claude-driven implementation and PR tracking.",
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,magenta \"npm:dev -w @shipyard/server\" \"npm:dev -w @shipyard/web\"",
+    "build": "npm run build -w @shipyard/shared && npm run build -w @shipyard/server && npm run build -w @shipyard/web",
+    "start": "npm run start -w @shipyard/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:generate": "npm run db:generate -w @shipyard/server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

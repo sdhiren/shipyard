@@ -1,0 +1,111 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens. Surfaces step up from bg → panel → raised; text steps down
+ * from fg → muted → faint. Dark is the default theme.
+ */
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-raised: var(--raised);
+  --color-hover: var(--hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+}
+
+:root {
+  --bg: #f7f7f8;
+  --panel: #ffffff;
+  --raised: #ffffff;
+  --hover: #f0f0f3;
+  --line: #e6e6ea;
+  --line-strong: #d4d4da;
+  --fg: #18181b;
+  --muted: #5b5b66;
+  --faint: #9a9aa5;
+  --accent: #5b5bd6;
+  --accent-fg: #ffffff;
+  --accent-soft: #ededfc;
+  color-scheme: light;
+}
+
+.dark {
+  --bg: #0c0c0f;
+  --panel: #121216;
+  --raised: #18181d;
+  --hover: #1f1f25;
+  --line: #24242b;
+  --line-strong: #32323b;
+  --fg: #ececf1;
+  --muted: #a0a0ab;
+  --faint: #66666f;
+  --accent: #7c7cf0;
+  --accent-fg: #ffffff;
+  --accent-soft: #23234a;
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  font-feature-settings: 'cv11', 'ss01';
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+.prose-shipyard {
+  @apply prose prose-sm max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight prose-a:text-accent prose-code:before:content-none prose-code:after:content-none prose-code:rounded prose-code:bg-hover prose-code:px-1 prose-code:py-0.5 prose-code:font-normal prose-pre:bg-bg prose-pre:border prose-pre:border-line;
+}
+
+@keyframes slide-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.animate-slide-in {
+  animation: slide-in 160ms ease-out;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.animate-fade-in {
+  animation: fade-in 120ms ease-out;
+}
