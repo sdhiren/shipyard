@@ -104,6 +104,10 @@ db-backup: ## Back up the database into ~/.shipyard/backups/
 worktrees: ## List the git worktrees Shipyard created for implementation runs
 	@find "$(DATA_DIR)/worktrees" -mindepth 2 -maxdepth 2 -type d 2>/dev/null || echo "No worktrees yet."
 
+.PHONY: audit
+audit: ## Check dependencies for known vulnerabilities
+	$(NPM) audit
+
 .PHONY: clean
 clean: ## Remove build output (dist folders)
 	rm -rf packages/shared/dist apps/server/dist apps/web/dist

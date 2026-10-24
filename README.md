@@ -74,6 +74,7 @@ Run `make` to list every target:
 | `make db-generate` | Generate a migration after editing `apps/server/src/db/schema.ts` |
 | `make db-shell` / `make db-backup` | Open the SQLite DB / back it up to `~/.shipyard/backups/` |
 | `make worktrees` | List the worktrees created for implementation runs |
+| `make audit` | Check dependencies for known vulnerabilities |
 | `make clean` / `make distclean` | Remove build output / also remove `node_modules` |
 
 `DATA_DIR` and `API_PORT` can be overridden, e.g. `make dev DATA_DIR=/tmp/shipyard-demo`. Plain `npm run dev`, `npm run build`, `npm start` and `npm test` work too.
