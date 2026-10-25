@@ -50,6 +50,23 @@ The prompt goes in on stdin. Each NDJSON line is turned into a `RunEvent`: `syst
 | implement | `~/.shipyard/worktrees/<project>/<key>` | `acceptEdits` + project allow-list (guarded) or skip-permissions (full) | commits on the branch |
 | revise | same worktree, `--resume <session>` | same as implement | more commits, pushed to the PR |
 
+### Branch base
+
+Before every implementation run, `git.ensureWorktree` (serialised per repository) does the following:
+
+1. Fetches `refs/heads/<default>` from origin into `origin/<default>`. If origin can't be reached, the run stops with an error instead of quietly using an old base. Repos without an `origin` remote use the local branch.
+2. **New branch:** cuts `shipyard/<key>-<slug>` from the freshly fetched `origin/<default>`.
+3. **Existing branch** (a re-run after a failure or cancel) is brought up to date only when that's safe:
+
+| Branch state | What happens |
+|---|---|
+| No commits of its own | Fast-forwarded to the latest base |
+| Has its own commits | Rebased onto the latest base; if that would conflict, the rebase is aborted and the branch stays as it was |
+| Has uncommitted work | Left untouched |
+| Already pushed, or has a PR | Never rewritten |
+
+Revisions skip this step because they continue a published branch. The owner's checkout and local branches are never modified. The run log records the base commit, and the PR description includes it.
+
 After an implement or revise run, `agent.finishDelivery` commits any leftovers and checks that the branch is ahead of base. Then, if the project has a GitHub remote and auto-PR is on, it pushes and opens the PR (or comments on the existing one).
 
 ## Live updates

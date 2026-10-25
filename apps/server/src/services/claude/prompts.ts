@@ -106,12 +106,12 @@ ${feedback}
 Make the requested changes on the current branch, keep the tests passing${test ? ` (\`${test}\`)` : ''}, and commit them. Do not push. End with a short summary of what you changed.`;
 }
 
-export function prBody(item: ItemRow, key: string, summary: string, diffStat: string): string {
+export function prBody(item: ItemRow, key: string, summary: string, diffStat: string, base?: { branch: string; sha: string | null }): string {
   return `${summary.trim() || item.title}
 
 ---
 
-**Backlog item:** ${key} · ${item.type} · ${item.priority}
+**Backlog item:** ${key} · ${item.type} · ${item.priority}${base?.sha ? `\n**Based on:** \`${base.branch}\` @ \`${base.sha}\`` : ''}
 ${item.acceptanceCriteria.length ? `\n**Acceptance criteria**\n${item.acceptanceCriteria.map((c) => `- [ ] ${c}`).join('\n')}\n` : ''}
 ${diffStat ? `<details><summary>Diff stat</summary>\n\n\`\`\`\n${diffStat}\n\`\`\`\n</details>\n` : ''}
 _Opened by Shipyard via Claude Code._`;

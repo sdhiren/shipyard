@@ -36,7 +36,7 @@
 
 **Delivery**
 - **Plan first:** Claude writes an implementation plan, refines the acceptance criteria and re-estimates effort.
-- **Implement:** a fresh `git worktree` on `shipyard/<key>-<slug>`, so your own checkout is never touched. Claude codes, runs the project's check command and commits. Shipyard then pushes and opens the PR (optionally as a draft).
+- **Implement:** a fresh `git worktree` on `shipyard/<key>-<slug>`, so your own checkout is never touched. Every run first fetches the latest `main` from origin and branches from it (re-runs are fast-forwarded or rebased onto it when that's safe), so parallel PRs start from the same up-to-date base. Claude codes, runs the project's check command and commits. Shipyard then pushes and opens the PR (optionally as a draft).
 - **Request changes:** Claude resumes the same session on the same branch with your feedback, then pushes to the PR.
 - **PR tracking:** state, draft, CI checks and review decision are polled through `gh`. A merged PR moves the item to Done and cleans up the worktree.
 - Link a PR you opened by hand, merge from the UI, and view the branch diff in the item drawer.

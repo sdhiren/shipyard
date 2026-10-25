@@ -254,9 +254,16 @@ export function startImplementation(itemId: string): Run {
   logActivity({ projectId: project.id, itemId, kind: 'run_started', message: `Implementation started on \`${branch}\``, meta: { runId: run.id } });
 
   enqueue(run.id, async (ctx) => {
-    ctx.emit('step', `Preparing worktree ${worktreePath}`);
-    const wt = await git.ensureWorktree({ repoPath: project.path, worktreePath, branch, baseBranch });
-    ctx.emit('step', wt.created ? `Created branch ${branch} from ${wt.base}` : `Reusing existing worktree on ${branch}`);
+    ctx.emit('step', `Fetching the latest ${baseBranch} and preparing the worktree`);
+    let wt: git.WorktreeResult;
+    try {
+      // Always start from the freshest base to keep parallel PRs from drifting apart.
+      wt = await git.ensureWorktree({ repoPath: project.path, worktreePath, branch, baseBranch, published: !!item.prNumber });
+    } catch (err) {
+      patchItem(itemId, { status: 'planned' }, 'could not prepare the branch');
+      throw err;
+    }
+    ctx.emit('step', git.describeWorktree(wt, branch));
 
     const fresh = getItemRow(itemId);
     const prompt = implementPrompt(project, fresh, key);
@@ -322,7 +329,7 @@ async function finishDelivery(
             head: branch,
             base: baseBranch,
             title: `${item.title} (${key})`,
-            body: prBody(item, key, summary, await git.diffStat(cwd, baseBranch)),
+            body: prBody(item, key, summary, await git.diffStat(cwd, baseBranch), { branch: baseBranch, sha: await git.mergeBaseShort(cwd, baseBranch) }),
             draft: project.settings.draftPr,
           }));
         applyPrSnapshot(itemId, pr);
@@ -356,7 +363,13 @@ export function startRevision(itemId: string, feedback: string): Run {
   logActivity({ projectId: project.id, itemId, kind: 'note', message: `Requested changes:\n\n${feedback}` });
 
   enqueue(run.id, async (ctx) => {
-    await git.ensureWorktree({ repoPath: project.path, worktreePath: item.worktreePath!, branch: item.branch!, baseBranch });
+    try {
+      // Revisions continue the same branch (often already on GitHub), so it isn't rebased here.
+      await git.ensureWorktree({ repoPath: project.path, worktreePath: item.worktreePath!, branch: item.branch!, baseBranch, sync: false });
+    } catch (err) {
+      patchItem(itemId, { status: 'in_review' }, 'could not prepare the branch');
+      throw err;
+    }
     const result = await claude(ctx, project, {
       // Resuming keeps Claude's memory of the first implementation; fall back to the full brief.
       prompt: item.sessionId ? prompt : `${implementPrompt(project, item, key)}\n\n---\n\n${prompt}`,
@@ -462,7 +475,7 @@ export async function openPr(itemId: string): Promise<BacklogItem> {
       head: item.branch,
       base,
       title: `${item.title} (${key})`,
-      body: prBody(item, key, lastSummary, await git.diffStat(item.worktreePath, base)),
+      body: prBody(item, key, lastSummary, await git.diffStat(item.worktreePath, base), { branch: base, sha: await git.mergeBaseShort(item.worktreePath, base) }),
       draft: project.settings.draftPr,
     }));
   applyPrSnapshot(itemId, pr);
