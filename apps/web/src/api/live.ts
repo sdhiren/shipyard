@@ -59,7 +59,7 @@ export function useLiveUpdates(): void {
           if (e.itemId) invalidate(['item-runs', e.itemId], ['item', e.itemId]);
           break;
         case 'item.changed':
-          invalidate(['items', e.projectId], ['item', e.itemId], ['item-activity', e.itemId], ['projects'], ['dashboard']);
+          invalidate(['items', e.projectId], ['item', e.itemId], ['item-activity', e.itemId], ['item-comments', e.itemId], ['projects'], ['dashboard']);
           break;
         case 'items.changed':
           invalidate(['items', e.projectId], ['projects'], ['dashboard']);

@@ -2,6 +2,8 @@ import type {
   ActivityKind,
   AnalysisFocus,
   ChecksState,
+  CommentAuthor,
+  CommentKind,
   Effort,
   GitInfo,
   HealthScores,
@@ -69,6 +71,7 @@ export const items = sqliteTable(
     affectedFiles: text('affected_files', { mode: 'json' }).$type<string[]>().notNull().default([]),
     analysisId: text('analysis_id'),
     plan: text('plan'),
+    openQuestions: text('open_questions', { mode: 'json' }).$type<string[]>().notNull().default([]),
     position: real('position').notNull().default(0),
     snoozedUntil: text('snoozed_until'),
     dueDate: text('due_date'),
@@ -182,6 +185,27 @@ export const activity = sqliteTable(
   (t) => [index('activity_project_idx').on(t.projectId, t.createdAt), index('activity_item_idx').on(t.itemId)],
 );
 
+/** The item's discussion thread: the owner's comments and Claude's replies. */
+export const comments = sqliteTable(
+  'comments',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    author: text('author').$type<CommentAuthor>().notNull(),
+    kind: text('kind').$type<CommentKind>().notNull(),
+    body: text('body').notNull(),
+    planUpdated: integer('plan_updated', { mode: 'boolean' }).notNull().default(false),
+    runId: text('run_id'),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('comments_item_idx').on(t.itemId, t.createdAt)],
+);
+
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value', { mode: 'json' }).notNull(),
@@ -192,3 +216,4 @@ export type ItemRow = typeof items.$inferSelect;
 export type RunRow = typeof runs.$inferSelect;
 export type AnalysisRow = typeof analyses.$inferSelect;
 export type ActivityRow = typeof activity.$inferSelect;
+export type CommentRow = typeof comments.$inferSelect;

@@ -16,6 +16,7 @@ import { items, projects, runs, type ItemRow } from '../db/schema.js';
 import { bus } from '../lib/events.js';
 import { badRequest, conflict, newId, notFound, now } from '../lib/util.js';
 import { logActivity } from './activity.js';
+import { commentCounts } from './comments.js';
 import { toItem } from './mappers.js';
 
 function keyPrefix(projectId: string): string {
@@ -32,7 +33,7 @@ export function getItemRow(id: string): ItemRow {
 
 export function getItem(id: string): BacklogItem {
   const row = getItemRow(id);
-  return toItem(row, keyPrefix(row.projectId));
+  return toItem(row, keyPrefix(row.projectId), commentCounts([id]).get(id) ?? 0);
 }
 
 export function itemKey(row: ItemRow): string {
@@ -63,7 +64,9 @@ export function listItems(projectId: string, f: ItemFilters = {}): BacklogItem[]
     .orderBy(asc(items.position), desc(items.createdAt))
     .all();
   const nowIso = now();
-  return rows.filter((r) => f.includeSnoozed || !r.snoozedUntil || r.snoozedUntil <= nowIso).map((r) => toItem(r, prefix));
+  const visible = rows.filter((r) => f.includeSnoozed || !r.snoozedUntil || r.snoozedUntil <= nowIso);
+  const counts = commentCounts(visible.map((r) => r.id));
+  return visible.map((r) => toItem(r, prefix, counts.get(r.id) ?? 0));
 }
 
 /** Allocate the next per-project item number atomically. */
@@ -119,6 +122,7 @@ export function createItem(
     affectedFiles: extra.affectedFiles ?? [],
     analysisId: extra.analysisId ?? null,
     plan: null,
+    openQuestions: [],
     position: bottomPosition(projectId, data.status),
     snoozedUntil: null,
     dueDate: data.dueDate ?? null,
@@ -252,4 +256,30 @@ export function hardDelete(id: string): void {
 export function addNote(id: string, body: string): void {
   const row = getItemRow(id);
   logActivity({ projectId: row.projectId, itemId: id, kind: 'note', message: body });
+}
+
+/**
+ * One-time move for plans written before open questions had their own field:
+ * split a trailing "### Open questions" section out of the plan text.
+ */
+export function backfillOpenQuestions(): number {
+  const rows = db.select({ id: items.id, plan: items.plan, openQuestions: items.openQuestions }).from(items).where(like(items.plan, '%### Open questions%')).all();
+  let moved = 0;
+  for (const r of rows) {
+    if (!r.plan || r.openQuestions.length) continue;
+    const idx = r.plan.lastIndexOf('### Open questions');
+    const questions = r.plan
+      .slice(idx)
+      .split('\n')
+      .slice(1)
+      .map((l) => l.replace(/^\s*(?:[-*]|\d+\.)\s+/, '').trim())
+      .filter(Boolean);
+    if (!questions.length) continue;
+    db.update(items)
+      .set({ plan: r.plan.slice(0, idx).trimEnd(), openQuestions: questions })
+      .where(eq(items.id, r.id))
+      .run();
+    moved++;
+  }
+  return moved;
 }

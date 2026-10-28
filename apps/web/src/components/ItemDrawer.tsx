@@ -45,10 +45,11 @@ import { api } from '../api/client';
 import { useAction, useDecide, useItem, useItemActivity, useItemRuns, useProject } from '../api/hooks';
 import { cn, formatCost, formatDuration, timeAgo } from '../lib/utils';
 import { EffortBadge, Md, PrBadge, PriorityIcon, RunStatusIcon, ScoreBadge, StatusBadge, TypeIcon } from './domain';
+import { Discussion } from './Discussion';
 import { RunLog } from './RunLog';
 import { Badge, Button, ConfirmDialog, Dialog, Field, Input, Menu, Spinner, Tabs, Textarea } from './ui';
 
-type Tab = 'overview' | 'activity' | 'runs' | 'diff';
+type Tab = 'overview' | 'discussion' | 'activity' | 'runs' | 'diff';
 
 export function ItemDrawer({ itemId, onClose }: { itemId: string; onClose: () => void }) {
   const { data: item, isLoading } = useItem(itemId);
@@ -64,9 +65,10 @@ export function ItemDrawer({ itemId, onClose }: { itemId: string; onClose: () =>
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  // Jump to the live log when a run starts.
+  // Jump to the live log when Claude starts working, unless the owner is in the
+  // conversation (replies show up in the thread itself).
   useEffect(() => {
-    if (activeRun) setTab('runs');
+    if (activeRun && activeRun.kind !== 'discuss') setTab((t) => (t === 'discussion' ? t : 'runs'));
   }, [activeRun?.id]);
 
   return createPortal(
@@ -88,6 +90,17 @@ export function ItemDrawer({ itemId, onClose }: { itemId: string; onClose: () =>
                 onChange={setTab}
                 tabs={[
                   { value: 'overview', label: 'Overview', icon: <FileText className="size-3.5" /> },
+                  {
+                    value: 'discussion',
+                    label: (
+                      <span className="flex items-center gap-1.5">
+                        Discussion
+                        {item.openQuestions.length > 0 && <span className="size-1.5 rounded-full bg-violet-400" title="Claude has open questions" />}
+                      </span>
+                    ),
+                    icon: <MessageSquare className="size-3.5" />,
+                    count: item.commentCount,
+                  },
                   { value: 'activity', label: 'Activity', icon: <History className="size-3.5" /> },
                   { value: 'runs', label: 'Claude runs', icon: <Sparkles className="size-3.5" />, count: runs?.length },
                   ...(item.worktreePath || item.branch ? [{ value: 'diff' as const, label: 'Changes', icon: <FileDiff className="size-3.5" /> }] : []),
@@ -95,7 +108,17 @@ export function ItemDrawer({ itemId, onClose }: { itemId: string; onClose: () =>
               />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto">
-              {tab === 'overview' && <Overview item={item} />}
+              {tab === 'overview' && <Overview item={item} onOpenDiscussion={() => setTab('discussion')} />}
+              {tab === 'discussion' && (
+                <Discussion
+                  item={item}
+                  onShowLog={() => setTab('runs')}
+                  onShowPlan={() => {
+                    setTab('overview');
+                    setTimeout(() => document.getElementById('item-plan')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+                  }}
+                />
+              )}
               {tab === 'activity' && <ActivityTab item={item} />}
               {tab === 'runs' && <RunsTab itemId={item.id} />}
               {tab === 'diff' && <DiffTab item={item} />}
@@ -442,7 +465,11 @@ function ReasonDialog(props: { open: boolean; title: string; description: string
 
 function ReviseDialog({ open, item, onClose }: { open: boolean; item: BacklogItem; onClose: () => void }) {
   const [feedback, setFeedback] = useState('');
-  const revise = useAction((f: string) => api.revise(item.id, f), { success: 'Claude is revising the branch' });
+  // Posted to the discussion thread, so the feedback stays alongside the conversation.
+  const revise = useAction((f: string) => api.postComment(item.id, { body: f, intent: 'change_request' }), {
+    success: 'Claude is revising the branch',
+    invalidate: [['item-comments', item.id], ['item-runs', item.id]],
+  });
   return (
     <Dialog
       open={open}
@@ -509,7 +536,7 @@ function Section({ title, children, action }: { title: string; children: ReactNo
   );
 }
 
-function Overview({ item }: { item: BacklogItem }) {
+function Overview({ item, onOpenDiscussion }: { item: BacklogItem; onOpenDiscussion: () => void }) {
   const [editing, setEditing] = useState(false);
   const [desc, setDesc] = useState(item.description);
   const [criteria, setCriteria] = useState(item.acceptanceCriteria.join('\n'));
@@ -573,7 +600,7 @@ function Overview({ item }: { item: BacklogItem }) {
             {item.acceptanceCriteria.map((c, i) => (
               <li key={i} className="flex gap-2 text-sm text-fg">
                 <Check className={cn('mt-0.5 size-4 shrink-0', item.status === 'done' ? 'text-emerald-400' : 'text-faint')} />
-                {c}
+                <Md className="min-w-0 prose-p:my-0">{c}</Md>
               </li>
             ))}
           </ul>
@@ -596,11 +623,37 @@ function Overview({ item }: { item: BacklogItem }) {
       )}
 
       {item.plan && (
-        <Section title="Implementation plan">
-          <div className="rounded-xl border border-line bg-bg p-4">
-            <Md>{item.plan}</Md>
-          </div>
-        </Section>
+        <div id="item-plan" className="scroll-mt-2">
+          <Section
+            title="Implementation plan"
+            action={
+              <Button size="xs" variant="ghost" icon={<MessageSquare className="size-3" />} onClick={onOpenDiscussion}>
+                Discuss
+              </Button>
+            }
+          >
+            <div className="rounded-xl border border-line bg-bg p-4">
+              <Md>{item.plan}</Md>
+            </div>
+            {item.openQuestions.length > 0 && (
+              <div className="mt-3 rounded-xl border border-violet-500/30 bg-violet-500/[0.04] p-4">
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <h4 className="text-sm font-medium text-violet-300">Open questions</h4>
+                  <Button size="xs" variant="primary" icon={<MessageSquare className="size-3" />} onClick={onOpenDiscussion}>
+                    Answer in Discussion
+                  </Button>
+                </div>
+                <ol className="list-decimal space-y-1.5 pl-5 text-sm text-fg marker:text-faint">
+                  {item.openQuestions.map((q, i) => (
+                    <li key={i}>
+                      <Md className="prose-p:my-0">{q}</Md>
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            )}
+          </Section>
+        </div>
       )}
 
       {(item.branch || item.decisionReason) && (
@@ -697,24 +750,9 @@ const ACTIVITY_ICON: Partial<Record<Activity['kind'], ReactNode>> = {
 
 function ActivityTab({ item }: { item: BacklogItem }) {
   const { data: activity } = useItemActivity(item.id);
-  const [note, setNote] = useState('');
-  const add = useAction((b: string) => api.addNote(item.id, b), { invalidate: [['item-activity', item.id]] });
   return (
     <div className="px-5 py-4">
-      <div className="mb-5 flex gap-2">
-        <Textarea
-          className="min-h-16"
-          placeholder="Add a note… (⌘↵ to save)"
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && note.trim()) add.mutate(note, { onSuccess: () => setNote('') });
-          }}
-        />
-        <Button className="self-end" disabled={!note.trim()} loading={add.isPending} onClick={() => add.mutate(note, { onSuccess: () => setNote('') })}>
-          Note
-        </Button>
-      </div>
+      <p className="mb-4 text-xs text-faint">Everything that happened to this item. Comments and questions for Claude live in the Discussion tab.</p>
       <ol className="relative space-y-4 border-l border-line pl-5">
         {activity?.map((a) => (
           <li key={a.id} className="relative">
@@ -805,6 +843,7 @@ function DiffTab({ item }: { item: BacklogItem }) {
 const RUN_VERBS: Record<Run['kind'], string> = {
   analyze: 'analysing the project',
   plan: 'drafting a plan',
+  discuss: 'replying in the discussion',
   implement: 'implementing this',
   revise: 'applying your feedback',
   rebase: 'rebasing onto the latest main',

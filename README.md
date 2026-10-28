@@ -35,7 +35,8 @@
 - Open GitHub issues, read through `gh`.
 
 **Delivery**
-- **Plan first:** Claude writes an implementation plan, refines the acceptance criteria and re-estimates effort.
+- **Plan first:** Claude writes an implementation plan, refines the acceptance criteria and re-estimates effort. Any open questions are kept separate from the plan.
+- **Discussion:** every item has a Jira-style thread. Answer the plan's open questions in a quick form, ask Claude anything, or leave plain comments. Claude reads the code and the whole thread, replies there, and revises the plan when the discussion changes it. On items in review, **Request changes** in the same box has Claude revise the branch. Re-planning and implementation both see the discussion.
 - **Implement:** a fresh `git worktree` on `shipyard/<key>-<slug>`, so your own checkout is never touched. Every run first fetches the latest `main` from origin and branches from it (re-runs are fast-forwarded or rebased onto it when that's safe), so parallel PRs start from the same up-to-date base. Claude codes, runs the project's check command and commits. Shipyard then pushes and opens the PR (optionally as a draft).
 - **Request changes:** Claude resumes the same session on the same branch with your feedback, then pushes to the PR.
 - **PR tracking:** state, draft, CI checks, review decision and mergeability are polled through `gh`. A merged PR moves the item to Done and cleans up the worktree.

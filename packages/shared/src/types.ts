@@ -2,6 +2,8 @@ import type {
   ActivityKind,
   AnalysisFocus,
   ChecksState,
+  CommentAuthor,
+  CommentKind,
   Effort,
   ItemSource,
   ItemStatus,
@@ -92,6 +94,9 @@ export interface BacklogItem {
   affectedFiles: string[];
   analysisId: string | null;
   plan: string | null;
+  /** Questions from the latest plan that still need the owner's input. */
+  openQuestions: string[];
+  commentCount: number;
   position: number;
   snoozedUntil: string | null;
   dueDate: string | null;
@@ -162,6 +167,18 @@ export interface RunEvent {
   /** Short human-readable line for the log view. */
   text: string;
   data: unknown;
+  createdAt: string;
+}
+
+export interface Comment {
+  id: string;
+  itemId: string;
+  author: CommentAuthor;
+  kind: CommentKind;
+  body: string;
+  /** Claude's reply changed the plan. */
+  planUpdated: boolean;
+  runId: string | null;
   createdAt: string;
 }
 

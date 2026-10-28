@@ -27,6 +27,7 @@
 | `runs` | Every Claude invocation (`analyze`, `plan`, `implement`, `revise`): status, prompt, session, cost, duration |
 | `run_events` | The streamed transcript of a run, ordered by `seq` |
 | `activity` | The append-only timeline for projects and items |
+| `comments` | Each item's discussion thread: the owner's comments, answers and change requests, plus Claude's replies and plan posts |
 | `settings` | Global settings (concurrency, PR poll interval, defaults, discovery roots) |
 
 Migrations live in `apps/server/drizzle` and run on boot. Run `npm run db:generate` after changing `schema.ts`.
@@ -46,7 +47,8 @@ The prompt goes in on stdin. Each NDJSON line is turned into a `RunEvent`: `syst
 | Run kind | cwd | Permissions | Output |
 |---|---|---|---|
 | analyze | project checkout | read-only allow-list; Edit/Write disallowed | `analysisResultSchema` → Inbox items + health |
-| plan | worktree if present, else checkout | read-only | `planResultSchema` → item plan / criteria / effort |
+| plan | worktree if present, else checkout | read-only | `planResultSchema` → plan, criteria, effort, open questions; posts a summary to the thread |
+| discuss | worktree if present, else checkout | read-only | `discussResultSchema` → reply in the thread, plus an optional revised plan |
 | implement | `~/.shipyard/worktrees/<project>/<key>` | `acceptEdits` + project allow-list (guarded) or skip-permissions (full) | commits on the branch |
 | revise | same worktree, `--resume <session>` | same as implement | more commits, pushed to the PR |
 | rebase | same worktree; Claude only on conflicts | same as implement plus `git rebase --continue` and the like | rebased branch, force-pushed with lease |

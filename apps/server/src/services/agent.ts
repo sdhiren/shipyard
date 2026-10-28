@@ -2,7 +2,9 @@ import path from 'node:path';
 import {
   analysisResultSchema,
   analyzeSchema,
+  discussResultSchema,
   planResultSchema,
+  type PlanResult,
   type Analysis,
   type AnalyzeInput,
   type BacklogItem,
@@ -17,7 +19,8 @@ import { bus } from '../lib/events.js';
 import { badRequest, conflict, newId, notFound, now, slugify } from '../lib/util.js';
 import { logActivity } from './activity.js';
 import { runClaude, type ClaudeRunOptions } from './claude/runner.js';
-import { analysisPrompt, implementPrompt, planPrompt, prBody, rebasePrompt, revisePrompt } from './claude/prompts.js';
+import { analysisPrompt, discussPrompt, implementPrompt, planPrompt, prBody, rebasePrompt, revisePrompt } from './claude/prompts.js';
+import { addComment, threadForPrompt } from './comments.js';
 import * as git from './git.js';
 import * as gh from './github.js';
 import { createItem, getItem, getItemRow, itemKey, patchItem } from './items.js';
@@ -218,12 +221,23 @@ function writeGroup(project: ProjectRow): QueueGroup {
   };
 }
 
+/** Save a plan result to the item, keeping open questions as their own field. */
+function applyPlan(itemId: string, p: PlanResult): void {
+  patchItem(itemId, { plan: p.plan.trim(), openQuestions: p.openQuestions, acceptanceCriteria: p.acceptanceCriteria, effort: p.effort });
+}
+
+function planSummaryComment(p: PlanResult, replanned: boolean): string {
+  const head = `${replanned ? 'Revised' : 'Drafted'} the implementation plan · effort **${p.effort.toUpperCase()}** · ${p.acceptanceCriteria.length} acceptance criteria.`;
+  if (!p.openQuestions.length) return `${head}\n\nNo open questions. Reply here if you'd like anything changed.`;
+  return `${head}\n\n**Open questions**\n${p.openQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n\nAnswer them here and I'll update the plan.`;
+}
+
 export function startPlan(itemId: string): Run {
   const item = getItemRow(itemId);
   assertIdle(itemId);
   const project = getProjectRow(item.projectId);
   const cwd = item.worktreePath ?? project.path;
-  const prompt = planPrompt(project, item);
+  const prompt = planPrompt(project, item, threadForPrompt(itemId));
   const run = createRun({ projectId: project.id, itemId, kind: 'plan', model: project.settings.model, prompt, cwd });
   patchItem(itemId, { lastRunId: run.id });
   logActivity({ projectId: project.id, itemId, kind: 'run_started', message: 'Planning started', meta: { runId: run.id } });
@@ -234,12 +248,43 @@ export function startPlan(itemId: string): Run {
     if (!result.ok) return { status: 'failed', error: result.error };
     const parsed = planResultSchema.safeParse(result.structuredOutput);
     if (!parsed.success) return { status: 'failed', error: 'Plan did not match the expected shape' };
-    const p = parsed.data;
-    const plan = p.openQuestions.length ? `${p.plan}\n\n### Open questions\n${p.openQuestions.map((q) => `- ${q}`).join('\n')}` : p.plan;
-    patchItem(itemId, { plan, acceptanceCriteria: p.acceptanceCriteria, effort: p.effort });
+    applyPlan(itemId, parsed.data);
+    addComment({ itemId, author: 'claude', kind: 'plan', body: planSummaryComment(parsed.data, !!item.plan), planUpdated: true, runId: run.id });
     logActivity({ projectId: project.id, itemId, kind: 'plan_ready', message: 'Implementation plan ready for review', meta: { runId: run.id } });
-    ctx.emit('result', 'Plan saved to the item');
+    ctx.emit('result', parsed.data.openQuestions.length ? `Plan saved with ${parsed.data.openQuestions.length} open question(s)` : 'Plan saved to the item');
     return { status: 'succeeded', summary: 'Plan ready' };
+  });
+  return runToDto(getRunRow(run.id));
+}
+
+// ---------------------------------------------------------------------------
+// Discussion: Claude replies in the item's thread and may revise the plan
+// ---------------------------------------------------------------------------
+
+export function startDiscussion(itemId: string): Run {
+  const item = getItemRow(itemId);
+  assertIdle(itemId);
+  const project = getProjectRow(item.projectId);
+  const key = itemKey(item);
+  const cwd = item.worktreePath ?? project.path;
+  const prompt = discussPrompt(project, item, key, threadForPrompt(itemId));
+  const run = createRun({ projectId: project.id, itemId, kind: 'discuss', model: project.settings.model, prompt, cwd });
+  patchItem(itemId, { lastRunId: run.id });
+
+  enqueue(run.id, async (ctx) => {
+    const result = await claude(ctx, project, { prompt, cwd, mode: 'readonly', jsonSchema: cliSchema(discussResultSchema), persistSession: false });
+    addItemCost(itemId, result.costUsd);
+    if (!result.ok) return { status: 'failed', error: result.error };
+    const parsed = discussResultSchema.safeParse(result.structuredOutput);
+    if (!parsed.success) return { status: 'failed', error: "Claude's reply did not match the expected shape" };
+    const { reply, updatedPlan } = parsed.data;
+    if (updatedPlan) {
+      applyPlan(itemId, updatedPlan);
+      logActivity({ projectId: project.id, itemId, kind: 'plan_ready', message: 'Plan updated from the discussion', meta: { runId: run.id } });
+    }
+    addComment({ itemId, author: 'claude', kind: 'comment', body: reply, planUpdated: !!updatedPlan, runId: run.id });
+    ctx.emit('result', updatedPlan ? 'Replied and updated the plan' : 'Replied in the discussion');
+    return { status: 'succeeded', summary: updatedPlan ? 'Replied and updated the plan' : 'Replied' };
   });
   return runToDto(getRunRow(run.id));
 }
@@ -281,7 +326,7 @@ export function startImplementation(itemId: string): Run {
     ctx.emit('step', git.describeWorktree(wt, branch));
 
     const fresh = getItemRow(itemId);
-    const prompt = implementPrompt(project, fresh, key);
+    const prompt = implementPrompt(project, fresh, key, threadForPrompt(itemId));
     ctx.update({ prompt });
     const result = await claude(ctx, project, {
       prompt,
@@ -375,7 +420,6 @@ export function startRevision(itemId: string, feedback: string): Run {
   const prompt = revisePrompt(project, item, key, feedback);
   const run = createRun({ projectId: project.id, itemId, kind: 'revise', model: project.settings.model, prompt, cwd: item.worktreePath, branch: item.branch });
   patchItem(itemId, { status: 'in_progress', lastRunId: run.id }, 'changes requested');
-  logActivity({ projectId: project.id, itemId, kind: 'note', message: `Requested changes:\n\n${feedback}` });
 
   enqueue(run.id, async (ctx) => {
     try {

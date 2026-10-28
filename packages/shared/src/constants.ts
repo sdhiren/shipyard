@@ -60,7 +60,7 @@ export const EFFORT_POINTS: Record<Effort, number> = { xs: 1, s: 2, m: 3, l: 5, 
 export const ITEM_SOURCES = ['manual', 'ai', 'backlog_file', 'todo_comment', 'github_issue'] as const;
 export type ItemSource = (typeof ITEM_SOURCES)[number];
 
-export const RUN_KINDS = ['analyze', 'plan', 'implement', 'revise', 'rebase'] as const;
+export const RUN_KINDS = ['analyze', 'plan', 'discuss', 'implement', 'revise', 'rebase'] as const;
 export type RunKind = (typeof RUN_KINDS)[number];
 /** Run kinds that change code in a project's worktrees; these count toward its parallel limit. */
 export const WRITE_RUN_KINDS: RunKind[] = ['implement', 'revise', 'rebase'];
@@ -119,5 +119,18 @@ export const ACTIVITY_KINDS = [
   'pr_updated',
   'pr_merged',
   'plan_ready',
+  'comment',
 ] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+
+export const COMMENT_AUTHORS = ['user', 'claude'] as const;
+export type CommentAuthor = (typeof COMMENT_AUTHORS)[number];
+
+/**
+ * comment          a message in the item's discussion
+ * answers          the owner's answers to the plan's open questions
+ * change_request   feedback that started a revision of the branch
+ * plan             Claude drafted or re-drafted the plan (posted by the plan run)
+ */
+export const COMMENT_KINDS = ['comment', 'answers', 'change_request', 'plan'] as const;
+export type CommentKind = (typeof COMMENT_KINDS)[number];

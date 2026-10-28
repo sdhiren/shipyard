@@ -59,7 +59,18 @@ How to work:
 Return your answer in the required JSON format.`;
 }
 
-export function planPrompt(project: ProjectRow, item: ItemRow): string {
+function planState(item: ItemRow): string {
+  return [
+    item.plan ? `\n### Current plan\n${item.plan}` : '',
+    item.openQuestions.length ? `\n### Open questions still unanswered\n${item.openQuestions.map((q) => `- ${q}`).join('\n')}` : '',
+  ].join('\n');
+}
+
+function discussionBlock(discussion: string): string {
+  return discussion ? `\n### Discussion with the owner (oldest first)\nDecisions and answers here override the plan where they differ.\n\n${discussion}\n` : '';
+}
+
+export function planPrompt(project: ProjectRow, item: ItemRow, discussion = ''): string {
   return `You are planning the implementation of one backlog item for the project in the current directory. Explore the code as needed, then write a plan another engineer (or Claude) can follow to deliver it as a single pull request.
 
 ${projectContext(project)}
@@ -69,13 +80,39 @@ Type: ${item.type} · Priority: ${item.priority}${item.effort ? ` · Estimated e
 
 ${item.description || '(no description)'}
 ${item.acceptanceCriteria.length ? `\nAcceptance criteria so far:\n${item.acceptanceCriteria.map((c) => `- ${c}`).join('\n')}` : ''}
+${planState(item)}
+${discussionBlock(discussion)}
 
-The plan should cover the approach, the ordered steps with the files to touch, how it will be tested${project.settings.testCommand ? ` (the project's check command is \`${project.settings.testCommand}\`)` : ''}, and risks or migration concerns. Refine the acceptance criteria and re-estimate effort. List open questions only when an answer would change the design.
+The plan should cover the approach, the ordered steps with the files to touch, how it will be tested${project.settings.testCommand ? ` (the project's check command is \`${project.settings.testCommand}\`)` : ''}, and risks or migration concerns. Refine the acceptance criteria and re-estimate effort. List open questions only when an answer would change the design, and don't ask again about anything the discussion already settled. Keep open questions out of the plan text; return them in openQuestions.
 
 This is a read-only planning step. Do not modify any files. Return your answer in the required JSON format.`;
 }
 
-export function implementPrompt(project: ProjectRow, item: ItemRow, key: string): string {
+export function discussPrompt(project: ProjectRow, item: ItemRow, key: string, discussion: string): string {
+  return `You planned backlog item ${key} for the owner of the project in the current directory, and they've replied in the item's discussion thread. Reply to their latest message the way a thoughtful colleague would: answer questions directly, give your recommendation when they ask for one, and say plainly when you need a decision from them. Explore the code when it helps you give a grounded answer.
+
+${projectContext(project)}
+
+## ${key}: ${item.title}
+Type: ${item.type} · Priority: ${item.priority}${item.effort ? ` · Effort: ${item.effort}` : ''} · Status: ${item.status}
+
+${item.description || '(no description)'}
+${item.acceptanceCriteria.length ? `\n### Acceptance criteria\n${item.acceptanceCriteria.map((c) => `- ${c}`).join('\n')}` : ''}
+${planState(item) || '\n(There is no plan yet.)'}
+
+### Discussion (oldest first; the last message is the one to reply to)
+${discussion}
+
+How to answer:
+- Keep the reply focused and short enough to read in a comment thread. Use Markdown.
+- If the owner's answers or decisions mean the plan should change (they answer open questions, change scope or approach, or ask you to), return the complete revised plan in updatedPlan: the full plan text, acceptance criteria, effort, and only the questions that are still open. Say in one or two sentences of your reply what you changed. Otherwise set updatedPlan to null.
+- If there's no plan yet and the conversation gives you enough to write one, you may return one in updatedPlan.
+- This is read-only. Do not modify any files.
+
+Return your answer in the required JSON format.`;
+}
+
+export function implementPrompt(project: ProjectRow, item: ItemRow, key: string, discussion = ''): string {
   const test = project.settings.testCommand;
   return `You are implementing one backlog item in this repository. You are working in a dedicated git worktree on branch \`${item.branch}\`; the owner's main checkout is untouched, so work freely here.
 
@@ -87,6 +124,8 @@ Type: ${item.type} · Priority: ${item.priority}
 ${item.description || '(no description)'}
 ${item.acceptanceCriteria.length ? `\n### Acceptance criteria\n${item.acceptanceCriteria.map((c) => `- ${c}`).join('\n')}` : ''}
 ${item.plan ? `\n### Approved plan\n${item.plan}` : ''}
+${item.openQuestions.length ? `\n### Questions the owner hasn't answered yet\nMake a sensible, reversible choice for each and call it out in your summary.\n${item.openQuestions.map((q) => `- ${q}`).join('\n')}` : ''}
+${discussionBlock(discussion)}
 
 ### How to deliver
 - Follow the conventions you find in the codebase (structure, naming, error handling, test style) and any CLAUDE.md / AGENTS.md guidance.

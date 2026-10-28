@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   ANALYSIS_FOCUS,
+  COMMENT_KINDS,
   AUTONOMY_LEVELS,
   EFFORTS,
   ITEM_SOURCES,
@@ -121,6 +122,7 @@ export const updateItemSchema = z
     position: z.number(),
     snoozedUntil: z.string().nullable(),
     plan: z.string().nullable(),
+    openQuestions: z.array(z.string().max(2000)).max(30),
   })
   .partial();
 export type UpdateItemInput = z.infer<typeof updateItemSchema>;
@@ -200,6 +202,29 @@ export const planResultSchema = z.object({
   openQuestions: z.array(z.string()),
 });
 export type PlanResult = z.infer<typeof planResultSchema>;
+
+// ---------------------------------------------------------------------------
+// Discussion
+// ---------------------------------------------------------------------------
+
+export const COMMENT_INTENTS = ['comment', 'ask', 'change_request'] as const;
+export type CommentIntent = (typeof COMMENT_INTENTS)[number];
+
+export const createCommentSchema = z.object({
+  body: z.string().trim().min(1).max(20_000),
+  /** comment = just post · ask = Claude replies · change_request = Claude revises the branch */
+  intent: z.enum(COMMENT_INTENTS).default('ask'),
+  kind: z.enum(COMMENT_KINDS).default('comment'),
+});
+export type CreateCommentInput = z.input<typeof createCommentSchema>;
+
+export const discussResultSchema = z.object({
+  reply: z.string().describe('Markdown reply to the owner, shown in the discussion thread'),
+  updatedPlan: planResultSchema
+    .nullable()
+    .describe('The full revised plan when the discussion changes it (answers open questions, scope or decisions); otherwise null'),
+});
+export type DiscussResult = z.infer<typeof discussResultSchema>;
 
 // ---------------------------------------------------------------------------
 // Settings
