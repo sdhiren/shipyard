@@ -1,4 +1,4 @@
-import type { ChecksState, PrState } from '@shipyard/shared';
+import type { ChecksState, MergeableState, PrState } from '@shipyard/shared';
 import { config } from '../config.js';
 import { exec, execOrThrow } from '../lib/exec.js';
 
@@ -16,6 +16,8 @@ export interface PrSnapshot {
   changedFiles: number;
   mergedAt: string | null;
   headRefName: string;
+  mergeable: MergeableState | null;
+  mergeState: string | null;
 }
 
 interface GhCheck {
@@ -36,7 +38,7 @@ export function summarizeChecks(rollup: GhCheck[] | null | undefined): ChecksSta
   return pending ? 'pending' : 'passing';
 }
 
-const PR_FIELDS = 'number,url,state,isDraft,reviewDecision,statusCheckRollup,additions,deletions,changedFiles,mergedAt,headRefName';
+const PR_FIELDS = 'number,url,state,isDraft,reviewDecision,statusCheckRollup,additions,deletions,changedFiles,mergedAt,headRefName,mergeable,mergeStateStatus';
 
 function toSnapshot(raw: Record<string, unknown>): PrSnapshot {
   return {
@@ -51,6 +53,8 @@ function toSnapshot(raw: Record<string, unknown>): PrSnapshot {
     changedFiles: (raw.changedFiles as number) ?? 0,
     mergedAt: (raw.mergedAt as string) || null,
     headRefName: raw.headRefName as string,
+    mergeable: (raw.mergeable as MergeableState) || null,
+    mergeState: (raw.mergeStateStatus as string) || null,
   };
 }
 

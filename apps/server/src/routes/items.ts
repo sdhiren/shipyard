@@ -19,6 +19,7 @@ import {
   openPr,
   startImplementation,
   startPlan,
+  startRebase,
   startRevision,
   syncPr,
 } from '../services/agent.js';
@@ -90,6 +91,8 @@ export async function itemRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/items/:id/pr/link', async (req) => linkPr(idParams.parse(req.params).id, linkPrSchema.parse(req.body).prUrlOrNumber));
 
   app.post('/api/items/:id/pr/sync', async (req) => syncPr(idParams.parse(req.params).id));
+
+  app.post('/api/items/:id/rebase', async (req, reply) => reply.code(202).send(startRebase(idParams.parse(req.params).id)));
 
   app.post('/api/items/:id/pr/merge', async (req) => {
     const { method } = z.object({ method: z.enum(['squash', 'merge', 'rebase']).default('squash') }).parse(req.body ?? {});

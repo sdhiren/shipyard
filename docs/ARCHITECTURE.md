@@ -49,6 +49,7 @@ The prompt goes in on stdin. Each NDJSON line is turned into a `RunEvent`: `syst
 | plan | worktree if present, else checkout | read-only | `planResultSchema` → item plan / criteria / effort |
 | implement | `~/.shipyard/worktrees/<project>/<key>` | `acceptEdits` + project allow-list (guarded) or skip-permissions (full) | commits on the branch |
 | revise | same worktree, `--resume <session>` | same as implement | more commits, pushed to the PR |
+| rebase | same worktree; Claude only on conflicts | same as implement plus `git rebase --continue` and the like | rebased branch, force-pushed with lease |
 
 ### Branch base
 
@@ -68,6 +69,28 @@ Before every implementation run, `git.ensureWorktree` (serialised per repository
 Revisions skip this step because they continue a published branch. The owner's checkout and local branches are never modified. The run log records the base commit, and the PR description includes it.
 
 After an implement or revise run, `agent.finishDelivery` commits any leftovers and checks that the branch is ahead of base. Then, if the project has a GitHub remote and auto-PR is on, it pushes and opens the PR (or comments on the existing one).
+
+## Run queue
+
+`runs.ts` holds queued runs in order and starts each one when both limits allow it:
+
+- **Global:** "Concurrent Claude runs" in Settings (default 2).
+- **Per project:** implement, revise and rebase runs belong to the group `write:<projectId>`, capped by the project's `maxParallelImplementations` (default 1). Analysis and planning are read-only, so they only count toward the global limit.
+
+A blocked run doesn't hold back runs behind it from other projects. Each queued run records why it's waiting, for example "Waiting for US-3 to finish: url-shortener allows 1 implementation at a time". The API returns it as `waitingReason`. Raising a project's limit starts eligible runs immediately.
+
+## Needs rebase
+
+The PR poller reads `mergeable` and `mergeStateStatus`. `CONFLICTING`/`DIRTY` sets `needsRebase`, and `BEHIND` sets `behindBase`. When a PR merges, the project's other open PRs are re-synced after 10s and again after 45s, because GitHub recalculates mergeability asynchronously. A newly conflicting PR gets an activity entry that names the PR whose merge caused it.
+
+`agent.startRebase` (a `rebase` run, in the project's write group):
+
+1. Ensures the worktree exists and is clean, then fetches the latest base and the PR branch.
+2. Fast-forwards to any commits pushed to the PR branch elsewhere. If the local and GitHub branches have diverged, it stops.
+3. Runs `git rebase origin/<base>`. If that's clean, Claude isn't involved.
+4. On conflicts, leaves the rebase in progress and asks Claude to resolve it. Claude resumes its implementation session, may run `git rebase --continue`, and runs the tests. A non-interactive `GIT_EDITOR` is set, so nothing can hang on an editor.
+5. Verifies the rebase finished, the branch contains the base, and no conflict markers remain. If any check fails, it aborts and resets the branch to its original commit.
+6. Pushes with `--force-with-lease` against the SHA it fetched, comments on the PR and re-syncs it.
 
 ## Live updates
 

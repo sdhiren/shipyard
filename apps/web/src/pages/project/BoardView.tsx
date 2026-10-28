@@ -11,7 +11,7 @@ import {
   type DragEndEvent,
 } from '@dnd-kit/core';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlarmClock, GitBranch, Plus, Sparkles } from 'lucide-react';
+import { AlarmClock, Clock, GitBranch, Plus, Sparkles, TriangleAlert } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../api/client';
@@ -154,8 +154,10 @@ function DraggableCard({ item }: { item: BacklogItem }) {
 
 function Card({ item, overlay }: { item: BacklogItem; overlay?: boolean }) {
   const ui = useUi();
-  const { data: runs } = useItemRuns(item.status === 'in_progress' ? item.id : null);
-  const running = runs?.some((r) => r.status === 'running' || r.status === 'queued');
+  const { data: runs } = useItemRuns(item.status === 'in_progress' || item.status === 'in_review' ? item.id : null);
+  const active = runs?.find((r) => r.status === 'running' || r.status === 'queued');
+  const running = active?.status === 'running';
+  const queued = active?.status === 'queued';
   const snoozed = item.snoozedUntil && new Date(item.snoozedUntil) > new Date();
   return (
     <div
@@ -164,6 +166,7 @@ function Card({ item, overlay }: { item: BacklogItem; overlay?: boolean }) {
         'cursor-pointer rounded-lg border border-line bg-raised p-3 shadow-sm transition-all hover:border-line-strong',
         overlay && 'rotate-2 shadow-2xl',
         running && 'border-amber-500/40',
+        !active && item.pr?.needsRebase && 'border-rose-500/40',
       )}
     >
       <div className="flex items-center gap-1.5 text-[11px] text-faint">
@@ -177,7 +180,17 @@ function Card({ item, overlay }: { item: BacklogItem; overlay?: boolean }) {
       <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
         {running && (
           <span className="inline-flex items-center gap-1 text-[11px] text-amber-400">
-            <Sparkles className="size-3 animate-pulse" /> Claude working
+            <Sparkles className="size-3 animate-pulse" /> {active?.kind === 'rebase' ? 'Rebasing' : 'Claude working'}
+          </span>
+        )}
+        {queued && (
+          <span className="inline-flex items-center gap-1 text-[11px] text-muted" title={active?.waitingReason ?? undefined}>
+            <Clock className="size-3" /> Queued
+          </span>
+        )}
+        {!active && item.pr?.needsRebase && (
+          <span className="inline-flex items-center gap-1 text-[11px] text-rose-400">
+            <TriangleAlert className="size-3" /> Needs rebase
           </span>
         )}
         {item.pr && <PrBadge pr={item.pr} compact />}

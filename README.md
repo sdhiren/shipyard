@@ -38,7 +38,9 @@
 - **Plan first:** Claude writes an implementation plan, refines the acceptance criteria and re-estimates effort.
 - **Implement:** a fresh `git worktree` on `shipyard/<key>-<slug>`, so your own checkout is never touched. Every run first fetches the latest `main` from origin and branches from it (re-runs are fast-forwarded or rebased onto it when that's safe), so parallel PRs start from the same up-to-date base. Claude codes, runs the project's check command and commits. Shipyard then pushes and opens the PR (optionally as a draft).
 - **Request changes:** Claude resumes the same session on the same branch with your feedback, then pushes to the PR.
-- **PR tracking:** state, draft, CI checks and review decision are polled through `gh`. A merged PR moves the item to Done and cleans up the worktree.
+- **PR tracking:** state, draft, CI checks, review decision and mergeability are polled through `gh`. A merged PR moves the item to Done and cleans up the worktree.
+- **Parallel work, safely:** each project has a "Parallel implementations" limit (default 1). Extra runs in the same repo wait in the queue, which shows what each one is waiting for, while other projects keep running.
+- **Needs rebase:** when a PR merges, Shipyard re-checks the project's other open PRs. Any PR that now conflicts with `main` gets a **Needs rebase** badge and a one-click **Rebase onto main**. A clean rebase is done directly, with no Claude cost. If there are conflicts, Claude resolves them and runs the tests, Shipyard verifies the result (the rebase finished, it contains `main`, no conflict markers remain) and force-pushes with lease. If anything fails, the branch is restored.
 - Link a PR you opened by hand, merge from the UI, and view the branch diff in the item drawer.
 - Every run is logged: a streaming transcript (tool calls, results, Claude's notes), the prompt used, duration, turns and cost.
 
@@ -138,6 +140,7 @@ apps/web          React 19 + Vite + Tailwind v4 + TanStack Query + dnd-kit + cmd
 ## Roadmap ideas
 
 - **Scheduled exploration:** a weekly analysis per project, with a digest of new suggestions.
+- **Overlap warnings:** warn before starting an item whose affected files overlap another in-flight item.
 - **Auto-pilot lanes:** let Claude implement low-risk `XS`/`S` items in the Up next lane overnight, within a budget.
 - **CI-failure auto-fix:** when a PR's checks fail, offer a one-click "fix CI" revision with the failing logs attached.
 - **PR review comments → revisions:** pull GitHub review comments into the Request changes dialog.

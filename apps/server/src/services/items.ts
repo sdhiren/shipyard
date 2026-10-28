@@ -138,6 +138,8 @@ export function createItem(
     prDeletions: null,
     prChangedFiles: null,
     prMergedAt: null,
+    prMergeable: null,
+    prMergeState: null,
     prSyncedAt: null,
     createdAt: ts,
     updatedAt: ts,

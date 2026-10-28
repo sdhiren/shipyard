@@ -9,10 +9,12 @@ import {
   type Effort,
   type ItemType,
   type Priority,
+  type Run,
 } from '@shipyard/shared';
 import {
   AlarmClock,
   Archive,
+  Clock,
   Check,
   Ellipsis,
   ExternalLink,
@@ -32,6 +34,7 @@ import {
   ThumbsDown,
   ThumbsUp,
   Trash2,
+  TriangleAlert,
   Undo2,
   WandSparkles,
   X,
@@ -77,7 +80,8 @@ export function ItemDrawer({ itemId, onClose }: { itemId: string; onClose: () =>
         ) : (
           <>
             <DrawerHeader item={item} onClose={onClose} />
-            <ActionBar item={item} busy={!!activeRun} onShowDiff={() => setTab('diff')} />
+            {activeRun ? <RunStatusStrip run={activeRun} onShowLog={() => setTab('runs')} /> : <RebaseBanner item={item} />}
+            <ActionBar item={item} activeRun={activeRun} onShowDiff={() => setTab('diff')} />
             <div className="border-b border-line px-5">
               <Tabs
                 value={tab}
@@ -209,7 +213,8 @@ function PropertyRow({ item }: { item: BacklogItem }) {
 // The decision bar: what can I do with this item right now?
 // ---------------------------------------------------------------------------
 
-function ActionBar({ item, busy, onShowDiff }: { item: BacklogItem; busy: boolean; onShowDiff: () => void }) {
+function ActionBar({ item, activeRun, onShowDiff }: { item: BacklogItem; activeRun: Run | undefined; onShowDiff: () => void }) {
+  const busy = !!activeRun;
   const decide = useDecide();
   const { data: project } = useProject(item.projectId);
   const hasGithub = !!project?.git.githubRepo;
@@ -219,6 +224,7 @@ function ActionBar({ item, busy, onShowDiff }: { item: BacklogItem; busy: boolea
   const openPr = useAction(() => api.openPr(item.id), { success: 'Pull request opened' });
   const syncPr = useAction(() => api.syncPr(item.id), { success: 'PR status refreshed' });
   const del = useAction(() => api.deleteItem(item.id), { success: 'Deleted permanently' });
+  const rebase = useAction(() => api.rebase(item.id), { success: 'Rebasing onto the latest main', invalidate: [['item-runs', item.id], ['runs']] });
   const snoozeDays = (days: number) => d('snooze', { until: new Date(Date.now() + days * 86_400_000).toISOString() });
 
   const snoozeMenu = (
@@ -243,6 +249,9 @@ function ActionBar({ item, busy, onShowDiff }: { item: BacklogItem; busy: boolea
       items={[
         { label: 'Draft a plan with Claude', icon: <ListChecks className="size-3.5" />, onSelect: () => d('plan'), disabled: busy },
         { label: 'Link existing PR…', icon: <GitPullRequest className="size-3.5" />, onSelect: () => setDialog('link'), disabled: !hasGithub },
+        ...(item.branch && item.status === 'in_review'
+          ? [{ label: 'Rebase onto latest main', icon: <GitBranch className="size-3.5" />, onSelect: () => rebase.mutate(undefined), disabled: busy }]
+          : []),
         { label: 'Mark done', icon: <Check className="size-3.5" />, onSelect: () => d('done') },
         'separator',
         ...(item.worktreePath
@@ -293,11 +302,7 @@ function ActionBar({ item, busy, onShowDiff }: { item: BacklogItem; busy: boolea
       );
       break;
     case 'in_progress':
-      primary = busy ? (
-        <span className="flex items-center gap-2 text-xs text-amber-400">
-          <Spinner className="size-3.5 text-amber-400" /> Claude is working on this. Follow along in the Claude runs tab.
-        </span>
-      ) : (
+      primary = busy ? null : (
         <Button size="sm" variant="primary" icon={<WandSparkles className="size-3.5" />} onClick={() => d('implement')}>
           Resume implementation
         </Button>
@@ -324,7 +329,7 @@ function ActionBar({ item, busy, onShowDiff }: { item: BacklogItem; busy: boolea
           <Button size="sm" icon={<MessageSquare className="size-3.5" />} onClick={() => setDialog('revise')} disabled={busy}>
             Request changes
           </Button>
-          {item.pr?.state === 'OPEN' && (
+          {item.pr?.state === 'OPEN' && !item.pr.needsRebase && (
             <Button size="sm" variant="success" icon={<GitMerge className="size-3.5" />} onClick={() => setDialog('merge')}>
               Merge
             </Button>
@@ -631,6 +636,14 @@ function Overview({ item }: { item: BacklogItem }) {
                   {item.pr.reviewDecision && <Badge>{item.pr.reviewDecision.toLowerCase().replace('_', ' ')}</Badge>}
                   <span className="text-faint">synced {timeAgo(item.pr.lastSyncedAt)}</span>
                 </dd>
+                {item.pr.state === 'OPEN' && (
+                  <>
+                    <dt className="text-faint">Merge status</dt>
+                    <dd className="text-xs">
+                      <MergeStatus pr={item.pr} />
+                    </dd>
+                  </>
+                )}
               </>
             )}
             {item.decisionReason && (
@@ -787,4 +800,79 @@ function DiffTab({ item }: { item: BacklogItem }) {
       </pre>
     </div>
   );
+}
+
+const RUN_VERBS: Record<Run['kind'], string> = {
+  analyze: 'analysing the project',
+  plan: 'drafting a plan',
+  implement: 'implementing this',
+  revise: 'applying your feedback',
+  rebase: 'rebasing onto the latest main',
+};
+
+/** What Claude is doing with this item right now, or why it hasn't started yet. */
+function RunStatusStrip({ run, onShowLog }: { run: Run; onShowLog: () => void }) {
+  const cancel = useAction(() => api.cancelRun(run.id), { success: 'Cancelled', invalidate: [['item-runs', run.itemId], ['runs'], ['items']] });
+  const queued = run.status === 'queued';
+  return (
+    <div className={cn('flex items-center gap-2 border-b px-5 py-2 text-xs', queued ? 'border-line bg-bg/60 text-muted' : 'border-amber-500/20 bg-amber-500/5 text-amber-400')}>
+      {queued ? <Clock className="size-3.5 shrink-0" /> : <Spinner className="size-3.5 shrink-0 text-amber-400" />}
+      <span className="min-w-0 flex-1">
+        {queued ? (
+          <>
+            <span className="font-medium text-fg">Queued.</span> {run.waitingReason ?? 'Waiting to start.'}
+          </>
+        ) : (
+          <>Claude is {RUN_VERBS[run.kind]}.</>
+        )}
+      </span>
+      <button className="shrink-0 hover:text-fg" onClick={onShowLog}>
+        View log
+      </button>
+      {queued && (
+        <Button size="xs" variant="ghost" loading={cancel.isPending} onClick={() => cancel.mutate(undefined)}>
+          Cancel
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** Shown when the PR can't merge cleanly because the base branch moved on. */
+function RebaseBanner({ item }: { item: BacklogItem }) {
+  const rebase = useAction(() => api.rebase(item.id), { success: 'Rebasing onto the latest main', invalidate: [['item-runs', item.id], ['runs']] });
+  const pr = item.pr;
+  if (!pr || pr.state !== 'OPEN' || (!pr.needsRebase && !pr.behindBase)) return null;
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-3 border-b px-5 py-2.5 text-xs',
+        pr.needsRebase ? 'border-rose-500/20 bg-rose-500/5 text-rose-400' : 'border-sky-500/20 bg-sky-500/5 text-sky-400',
+      )}
+    >
+      <TriangleAlert className="size-4 shrink-0" />
+      <span className="min-w-0 flex-1">
+        {pr.needsRebase ? (
+          <>
+            <span className="font-medium">PR #{pr.number} has merge conflicts with main.</span> Shipyard rebases it onto the latest main, has Claude resolve
+            the conflicts and run the tests, then updates the PR.
+          </>
+        ) : (
+          <>
+            <span className="font-medium">PR #{pr.number} is behind main.</span> Update the branch so it can merge.
+          </>
+        )}
+      </span>
+      <Button size="sm" variant={pr.needsRebase ? 'primary' : 'secondary'} icon={<GitBranch className="size-3.5" />} loading={rebase.isPending} onClick={() => rebase.mutate(undefined)}>
+        {pr.needsRebase ? 'Rebase onto main' : 'Update branch'}
+      </Button>
+    </div>
+  );
+}
+
+function MergeStatus({ pr }: { pr: NonNullable<BacklogItem['pr']> }) {
+  if (pr.needsRebase) return <span className="text-rose-400">Conflicts with main: needs a rebase</span>;
+  if (pr.behindBase) return <span className="text-sky-400">Behind main: needs an update before merging</span>;
+  if (pr.mergeable === 'MERGEABLE') return <span className="text-emerald-400">Can merge cleanly</span>;
+  return <span className="text-faint">GitHub is still checking</span>;
 }

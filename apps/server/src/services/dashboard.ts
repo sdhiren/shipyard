@@ -3,7 +3,8 @@ import { and, asc, desc, eq, gte, inArray, isNotNull, sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
 import { items, projects, runs } from '../db/schema.js';
 import { listActivity } from './activity.js';
-import { toItem, toRun } from './mappers.js';
+import { toItem } from './mappers.js';
+import { runToDto } from './runs.js';
 
 function isoDaysAgo(days: number): string {
   return new Date(Date.now() - days * 86_400_000).toISOString();
@@ -99,7 +100,7 @@ export function getDashboard(): DashboardSummary {
       const it = runItems.find((i) => i.id === r.itemId);
       const p = pMap.get(r.projectId);
       return {
-        ...toRun(r),
+        ...runToDto(r),
         itemKey: it && p ? `${p.keyPrefix}-${it.number}` : null,
         itemTitle: it?.title ?? null,
         projectName: p?.name ?? '',

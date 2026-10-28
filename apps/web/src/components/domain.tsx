@@ -27,6 +27,7 @@ import {
   Shield,
   Sparkles,
   TrendingUp,
+  TriangleAlert,
   Wrench,
 } from 'lucide-react';
 import Markdown from 'react-markdown';
@@ -160,11 +161,17 @@ export function PrBadge({ pr, compact }: { pr: PullRequestInfo; compact?: boolea
         'inline-flex h-5 shrink-0 items-center gap-1 rounded-md border px-1.5 text-[11px] font-medium transition-colors hover:brightness-125',
         merged ? 'border-violet-500/30 text-violet-400' : closed ? 'border-rose-500/30 text-rose-400' : 'border-emerald-500/30 text-emerald-400',
       )}
-      title={`PR #${pr.number} · ${pr.state.toLowerCase()}${pr.reviewDecision ? ` · ${pr.reviewDecision.toLowerCase()}` : ''}`}
+      title={`PR #${pr.number} · ${pr.state.toLowerCase()}${pr.reviewDecision ? ` · ${pr.reviewDecision.toLowerCase()}` : ''}${pr.needsRebase ? ' · conflicts with main' : pr.behindBase ? ' · behind main' : ''}`}
     >
       {merged ? <GitMerge className="size-3" /> : <GitPullRequest className="size-3" />}#{pr.number}
       {!compact && pr.isDraft && <span className="text-faint">draft</span>}
       {!merged && CHECK_ICON[pr.checks]}
+      {pr.needsRebase && (
+        <span className="flex items-center gap-0.5 text-rose-400">
+          <TriangleAlert className="size-3" />
+          {!compact && 'conflicts'}
+        </span>
+      )}
     </a>
   );
 }

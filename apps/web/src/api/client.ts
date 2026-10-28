@@ -100,6 +100,7 @@ export const api = {
   itemActivity: (id: string) => get<Activity[]>(`/items/${id}/activity`),
   itemRuns: (id: string) => get<Run[]>(`/items/${id}/runs`),
   revise: (id: string, feedback: string) => post<Run>(`/items/${id}/revise`, { feedback }),
+  rebase: (id: string) => post<Run>(`/items/${id}/rebase`),
   diff: (id: string) => get<{ stat: string; diff: string }>(`/items/${id}/diff`),
   discardWorkspace: (id: string) => del<BacklogItem>(`/items/${id}/workspace`),
   openPr: (id: string) => post<BacklogItem>(`/items/${id}/pr`),

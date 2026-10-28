@@ -1,7 +1,7 @@
 import type { Run, RunEvent, RunEventType, RunKind, RunStatus } from '@shipyard/shared';
 import { and, asc, desc, eq, gt, inArray } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { runEvents, runs, type RunRow } from '../db/schema.js';
+import { items, projects, runEvents, runs, type RunRow } from '../db/schema.js';
 import { bus } from '../lib/events.js';
 import { conflict, newId, notFound, now } from '../lib/util.js';
 import { toRun } from './mappers.js';
@@ -11,6 +11,10 @@ import { getSettings } from './settings.js';
  * A small persistent job queue for Claude runs. Run rows and their event logs
  * live in SQLite; the work itself is an in-process closure, so runs that were
  * mid-flight when the server stopped are marked failed on boot.
+ *
+ * Two limits apply: a global cap on concurrent runs, and an optional per-group
+ * cap (used to limit how many runs may change one repository at once). Queued
+ * runs that are blocked record why, so the UI can say what they're waiting for.
  */
 
 export interface RunContext {
@@ -22,13 +26,27 @@ export interface RunContext {
 
 type Task = (ctx: RunContext) => Promise<{ status: RunStatus; summary?: string | null; error?: string | null }>;
 
+export interface QueueGroup {
+  /** Runs sharing a key count toward the same limit, e.g. `write:<projectId>`. */
+  key: string;
+  /** Read each time the queue is pumped, so setting changes apply immediately. */
+  limit: () => number;
+  /** Used in the waiting message, e.g. the project name. */
+  label: string;
+}
+
 interface Pending {
   runId: string;
   task: Task;
+  group?: QueueGroup;
 }
 
 const queue: Pending[] = [];
 const active = new Map<string, AbortController>();
+/** runId → group key, for runs that are executing. */
+const activeGroups = new Map<string, string>();
+/** runId → why it's still queued. */
+const waiting = new Map<string, string>();
 const seqs = new Map<string, number>();
 
 function publishRun(row: RunRow): void {
@@ -98,23 +116,66 @@ export function createRun(input: {
   return row;
 }
 
-export function enqueue(runId: string, task: Task): void {
-  queue.push({ runId, task });
+export function enqueue(runId: string, task: Task, group?: QueueGroup): void {
+  queue.push({ runId, task, group });
   emit(runId, 'status', 'Queued');
-  pump();
+  pumpQueue();
 }
 
-function pump(): void {
+/** Item keys (e.g. "US-3") of the given runs, for waiting messages. */
+function itemKeysFor(runIds: string[]): string[] {
+  if (!runIds.length) return [];
+  return db
+    .select({ number: items.number, prefix: projects.keyPrefix })
+    .from(runs)
+    .innerJoin(items, eq(items.id, runs.itemId))
+    .innerJoin(projects, eq(projects.id, items.projectId))
+    .where(inArray(runs.id, runIds))
+    .all()
+    .map((r) => `${r.prefix}-${r.number}`);
+}
+
+function setWaiting(runId: string, reason: string): void {
+  if (waiting.get(runId) === reason) return;
+  waiting.set(runId, reason);
+  emit(runId, 'status', reason);
+  publishRun(getRunRow(runId));
+}
+
+/** Start every queued run whose global and group limits allow it, in order. */
+export function pumpQueue(): void {
   const limit = getSettings().maxConcurrentRuns;
-  while (active.size < limit && queue.length > 0) {
-    const next = queue.shift()!;
+  for (let i = 0; i < queue.length; ) {
+    const next = queue[i]!;
+    if (next.group) {
+      const max = Math.max(1, next.group.limit());
+      const busy = [...activeGroups].filter(([, key]) => key === next.group!.key).map(([id]) => id);
+      if (busy.length >= max) {
+        const keys = itemKeysFor(busy);
+        setWaiting(
+          next.runId,
+          `Waiting for ${keys.length ? keys.join(', ') : 'another run'} to finish: ${next.group.label} allows ${max} implementation${max === 1 ? '' : 's'} at a time`,
+        );
+        i++;
+        continue;
+      }
+    }
+    if (active.size >= limit) {
+      setWaiting(next.runId, `Waiting for a free run slot (${active.size} of ${limit} in use)`);
+      i++;
+      continue;
+    }
+    queue.splice(i, 1);
     void execute(next);
   }
 }
 
-async function execute({ runId, task }: Pending): Promise<void> {
+
+async function execute({ runId, task, group }: Pending): Promise<void> {
   const controller = new AbortController();
   active.set(runId, controller);
+  waiting.delete(runId);
+  if (group) activeGroups.set(runId, group.key);
   updateRun(runId, { status: 'running', startedAt: now() });
   emit(runId, 'status', 'Running');
   const ctx: RunContext = {
@@ -139,8 +200,9 @@ async function execute({ runId, task }: Pending): Promise<void> {
     emit(runId, 'status', `Failed: ${message}`);
   } finally {
     active.delete(runId);
+    activeGroups.delete(runId);
     seqs.delete(runId);
-    pump();
+    pumpQueue();
   }
 }
 
@@ -149,8 +211,11 @@ export function cancelRun(id: string): Run {
   const idx = queue.findIndex((q) => q.runId === id);
   if (idx >= 0) {
     queue.splice(idx, 1);
+    waiting.delete(id);
     emit(id, 'status', 'Cancelled before it started');
-    return toRun(updateRun(id, { status: 'cancelled', finishedAt: now() }));
+    const row = toRun(updateRun(id, { status: 'cancelled', finishedAt: now() }));
+    pumpQueue();
+    return row;
   }
   const ctrl = active.get(id);
   if (!ctrl) throw conflict(`Run is already ${row.status}`);
@@ -191,12 +256,17 @@ export function listRuns(f: { projectId?: string; itemId?: string; status?: RunS
     .orderBy(desc(runs.createdAt))
     .limit(f.limit ?? 50)
     .all()
-    .map(toRun);
+    .map(runToDto);
+}
+
+/** API shape of a run, including why it's waiting if it is queued. */
+export function runToDto(row: RunRow): Run {
+  return toRun(row, waiting.get(row.id) ?? null);
 }
 
 export function getRun(id: string): Run & { prompt: string } {
   const row = getRunRow(id);
-  return { ...toRun(row), prompt: row.prompt };
+  return { ...runToDto(row), prompt: row.prompt };
 }
 
 export function getRunEvents(runId: string, afterSeq = 0): RunEvent[] {

@@ -8,7 +8,7 @@ import {
   type BacklogItem,
   type Run,
 } from '@shipyard/shared';
-import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, notInArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { config } from '../config.js';
 import { db } from '../db/client.js';
@@ -17,13 +17,13 @@ import { bus } from '../lib/events.js';
 import { badRequest, conflict, newId, notFound, now, slugify } from '../lib/util.js';
 import { logActivity } from './activity.js';
 import { runClaude, type ClaudeRunOptions } from './claude/runner.js';
-import { analysisPrompt, implementPrompt, planPrompt, prBody, revisePrompt } from './claude/prompts.js';
+import { analysisPrompt, implementPrompt, planPrompt, prBody, rebasePrompt, revisePrompt } from './claude/prompts.js';
 import * as git from './git.js';
 import * as gh from './github.js';
 import { createItem, getItem, getItemRow, itemKey, patchItem } from './items.js';
 import { toAnalysis, toRun } from './mappers.js';
 import { getProjectRow } from './projects.js';
-import { createRun, enqueue, getRunRow, isItemBusy, type RunContext } from './runs.js';
+import { createRun, enqueue, getRunRow, isItemBusy, runToDto, type QueueGroup, type RunContext } from './runs.js';
 
 /** JSON Schema for `claude --json-schema` (the CLI rejects the `$schema` meta key). */
 function cliSchema(schema: z.ZodType): object {
@@ -203,6 +203,21 @@ function assertIdle(itemId: string): void {
   if (isItemBusy(itemId)) throw conflict('Claude is already working on this item');
 }
 
+/** Runs that change a project's code share its "parallel implementations" limit. */
+function writeGroup(project: ProjectRow): QueueGroup {
+  return {
+    key: `write:${project.id}`,
+    label: project.name,
+    limit: () => {
+      try {
+        return getProjectRow(project.id).settings.maxParallelImplementations;
+      } catch {
+        return 1;
+      }
+    },
+  };
+}
+
 export function startPlan(itemId: string): Run {
   const item = getItemRow(itemId);
   assertIdle(itemId);
@@ -226,7 +241,7 @@ export function startPlan(itemId: string): Run {
     ctx.emit('result', 'Plan saved to the item');
     return { status: 'succeeded', summary: 'Plan ready' };
   });
-  return toRun(getRunRow(run.id));
+  return runToDto(getRunRow(run.id));
 }
 
 // ---------------------------------------------------------------------------
@@ -283,8 +298,8 @@ export function startImplementation(itemId: string): Run {
       return { status: 'failed', error: result.error };
     }
     return finishDelivery(ctx, project, itemId, key, baseBranch, result.resultText, 'implement');
-  });
-  return toRun(getRunRow(run.id));
+  }, writeGroup(project));
+  return runToDto(getRunRow(run.id));
 }
 
 /** Shared tail of implement/revise: commit leftovers, push, open or update the PR. */
@@ -386,8 +401,8 @@ export function startRevision(itemId: string, feedback: string): Run {
       return { status: 'failed', error: result.error };
     }
     return finishDelivery(ctx, project, itemId, key, baseBranch, result.resultText, 'revise');
-  });
-  return toRun(getRunRow(run.id));
+  }, writeGroup(project));
+  return runToDto(getRunRow(run.id));
 }
 
 // ---------------------------------------------------------------------------
@@ -407,6 +422,8 @@ function applyPrSnapshot(itemId: string, pr: gh.PrSnapshot): void {
       prDeletions: pr.deletions,
       prChangedFiles: pr.changedFiles,
       prMergedAt: pr.mergedAt,
+      prMergeable: pr.mergeable,
+      prMergeState: pr.mergeState,
       prSyncedAt: now(),
       branch: pr.headRefName,
     })
@@ -414,14 +431,17 @@ function applyPrSnapshot(itemId: string, pr: gh.PrSnapshot): void {
     .run();
 }
 
+const conflicted = (p: { mergeable: string | null; mergeState: string | null }) => p.mergeable === 'CONFLICTING' || p.mergeState === 'DIRTY';
+
 /** Refresh PR state from GitHub and advance the item when it merges. */
-export async function syncPr(itemId: string): Promise<BacklogItem> {
+export async function syncPr(itemId: string, opts: { after?: string } = {}): Promise<BacklogItem> {
   const item = getItemRow(itemId);
   const project = getProjectRow(item.projectId);
   if (!item.prNumber || !project.git.githubRepo) return getItem(itemId);
-  const before = { state: item.prState, checks: item.prChecks, review: item.prReviewDecision };
+  const before = { state: item.prState, checks: item.prChecks, review: item.prReviewDecision, mergeable: item.prMergeable, mergeState: item.prMergeState };
   const pr = await gh.viewPr(project.git.githubRepo, item.prNumber);
   applyPrSnapshot(itemId, pr);
+  const base = project.git.defaultBranch ?? 'main';
 
   if (pr.state === 'MERGED' && item.status !== 'done') {
     patchItem(itemId, { status: 'done' }, `PR #${pr.number} merged`);
@@ -430,16 +450,182 @@ export async function syncPr(itemId: string): Promise<BacklogItem> {
       await git.removeWorktree(project.path, item.worktreePath).catch(() => undefined);
       db.update(items).set({ worktreePath: null }).where(eq(items.id, itemId)).run();
     }
-  } else if (before.state !== pr.state || before.checks !== pr.checks || before.review !== pr.reviewDecision) {
+    resyncSiblingPrs(project.id, itemId, pr.number);
+  } else {
     const parts = [
       before.state !== pr.state ? `state ${pr.state.toLowerCase()}` : '',
       before.checks !== pr.checks ? `checks ${pr.checks}` : '',
       before.review !== pr.reviewDecision && pr.reviewDecision ? `review ${pr.reviewDecision.toLowerCase().replace('_', ' ')}` : '',
     ].filter(Boolean);
-    logActivity({ projectId: project.id, itemId, kind: 'pr_updated', message: `PR #${pr.number}: ${parts.join(', ')}`, meta: { url: pr.url } });
+    if (parts.length) logActivity({ projectId: project.id, itemId, kind: 'pr_updated', message: `PR #${pr.number}: ${parts.join(', ')}`, meta: { url: pr.url } });
+
+    if (pr.state === 'OPEN' && conflicted(pr) && !conflicted(before)) {
+      logActivity({
+        projectId: project.id,
+        itemId,
+        kind: 'pr_updated',
+        message: `PR #${pr.number} now has merge conflicts with ${base}${opts.after ? ` (after ${opts.after} merged)` : ''}. Rebase it onto the latest ${base}.`,
+        meta: { url: pr.url, needsRebase: true },
+      });
+    } else if (pr.state === 'OPEN' && conflicted(before) && !conflicted(pr) && pr.mergeable === 'MERGEABLE') {
+      logActivity({ projectId: project.id, itemId, kind: 'pr_updated', message: `PR #${pr.number} no longer has merge conflicts`, meta: { url: pr.url } });
+    }
   }
   bus.publish({ type: 'item.changed', projectId: project.id, itemId });
   return getItem(itemId);
+}
+
+/** Sync an item's PR again after a delay (GitHub recomputes mergeability asynchronously). */
+function syncLater(itemId: string, delaysMs: number[], opts: { after?: string } = {}): void {
+  for (const ms of delaysMs) setTimeout(() => void syncPr(itemId, opts).catch(() => undefined), ms).unref();
+}
+
+/** When a PR merges, the project's other open PRs may now conflict: check them promptly. */
+function resyncSiblingPrs(projectId: string, mergedItemId: string, prNumber: number): void {
+  const siblings = db
+    .select({ id: items.id })
+    .from(items)
+    .where(and(eq(items.projectId, projectId), eq(items.prState, 'OPEN'), isNotNull(items.prNumber)))
+    .all()
+    .filter((r) => r.id !== mergedItemId);
+  for (const s of siblings) syncLater(s.id, [10_000, 45_000], { after: `#${prNumber}` });
+}
+
+// ---------------------------------------------------------------------------
+// Rebasing a PR onto the latest base
+// ---------------------------------------------------------------------------
+
+/** Extra commands Claude may run while resolving a rebase (on top of the project's allow-list). */
+const REBASE_TOOLS = [
+  'Bash(git rebase --continue*)',
+  'Bash(git rebase --skip*)',
+  'Bash(git checkout --ours*)',
+  'Bash(git checkout --theirs*)',
+  'Bash(git restore*)',
+  'Bash(git rm*)',
+];
+
+/**
+ * Bring an item's branch up to date with the latest base. A clean rebase is
+ * done directly (no Claude cost). If it conflicts, Claude resolves the
+ * conflicts in the worktree. The result is verified before anything is pushed,
+ * and the push uses --force-with-lease so commits added on GitHub are never
+ * overwritten. On any failure the branch is restored to how it was.
+ */
+export function startRebase(itemId: string): Run {
+  const item = getItemRow(itemId);
+  assertIdle(itemId);
+  if (!item.branch) throw conflict('This item has no branch to rebase yet');
+  const project = getProjectRow(item.projectId);
+  const key = itemKey(item);
+  const branch = item.branch;
+  const baseBranch = project.git.defaultBranch ?? 'main';
+  const cwd = item.worktreePath ?? path.join(config.worktreesDir, project.slug, key.toLowerCase());
+
+  const run = createRun({ projectId: project.id, itemId, kind: 'rebase', model: project.settings.model, prompt: '(only used if the rebase has conflicts)', cwd, branch });
+  patchItem(itemId, { lastRunId: run.id, worktreePath: cwd });
+  logActivity({ projectId: project.id, itemId, kind: 'run_started', message: `Rebasing \`${branch}\` onto the latest ${baseBranch}`, meta: { runId: run.id } });
+
+  enqueue(
+    run.id,
+    async (ctx) => {
+      await git.ensureWorktree({ repoPath: project.path, worktreePath: cwd, branch, baseBranch, sync: false });
+      await git.abortRebase(cwd); // leftover from an interrupted run
+      if (await git.hasUncommittedChanges(cwd)) {
+        return { status: 'failed', error: 'The worktree has uncommitted changes. Commit or discard them, then retry the rebase.' };
+      }
+
+      ctx.emit('step', `Fetching the latest ${baseBranch} and ${branch}`);
+      const { base, remoteSha } = await git.withRepoLock(project.path, async () => ({
+        base: await git.fetchLatestBase(project.path, baseBranch),
+        remoteSha: project.git.remoteUrl ? await git.fetchRemoteBranch(project.path, branch) : null,
+      }));
+
+      // Pick up commits added to the PR branch elsewhere (e.g. on GitHub) before rewriting it.
+      if (remoteSha && !(await git.isAncestor(cwd, remoteSha))) {
+        if (!(await git.isAncestor(cwd, 'HEAD', remoteSha))) {
+          return { status: 'failed', error: `${branch} on GitHub and the local branch have diverged. Reconcile them first, then retry.` };
+        }
+        await git.fastForwardTo(cwd, remoteSha);
+        ctx.emit('step', `Pulled newer commits for ${branch} from GitHub`);
+      }
+
+      if (await git.isAncestor(cwd, base.ref)) {
+        ctx.emit('result', `${branch} already includes the latest ${base.ref} @ ${base.sha}`);
+        if (item.prNumber) await syncPr(itemId).catch(() => undefined);
+        return { status: 'succeeded', summary: 'Already up to date' };
+      }
+
+      ctx.emit('step', `Rebasing ${branch} onto ${base.ref} @ ${base.sha} “${base.subject}”`);
+      const original = await git.headSha(cwd);
+      const attempt = await git.beginRebase(cwd, base.ref);
+      let conflicts: string[] = [];
+      let claudeSummary = '';
+
+      if (attempt.ok) {
+        ctx.emit('step', 'Rebased cleanly, with no conflicts');
+      } else {
+        conflicts = attempt.conflicts;
+        ctx.emit('step', `Conflicts in ${conflicts.join(', ') || 'some files'}; asking Claude to resolve them`);
+        const prompt = rebasePrompt(project, getItemRow(itemId), key, { onto: base.ref, ontoSubject: base.subject, conflicts });
+        ctx.update({ prompt });
+        const result = await claude(ctx, project, {
+          prompt,
+          cwd,
+          mode: project.settings.autonomy === 'full' ? 'full' : 'guarded',
+          allowedTools: [...project.settings.allowedTools, ...REBASE_TOOLS],
+          resumeSessionId: item.sessionId,
+          persistSession: true,
+        });
+        addItemCost(itemId, result.costUsd);
+        if (result.sessionId) db.update(items).set({ sessionId: result.sessionId }).where(eq(items.id, itemId)).run();
+
+        const problems: string[] = [];
+        if (!result.ok) problems.push(result.error ?? 'Claude did not finish');
+        if (await git.isRebaseInProgress(cwd)) problems.push('the rebase was left unfinished');
+        else if (!(await git.isAncestor(cwd, base.ref))) problems.push(`the branch doesn't include ${base.ref}`);
+        const markers = await git.filesWithConflictMarkers(cwd);
+        if (markers.length) problems.push(`conflict markers remain in ${markers.join(', ')}`);
+
+        if (problems.length) {
+          await git.abortRebase(cwd);
+          await git.resetHard(cwd, original);
+          ctx.emit('step', `Restored ${branch} to how it was before the rebase`);
+          return { status: 'failed', error: `Couldn't finish the rebase: ${problems.join('; ')}. ${branch} was restored, so you can retry or rebase it by hand.` };
+        }
+        if (await git.commitAll(cwd, `fix: follow-ups after rebasing ${key} onto ${baseBranch}`)) ctx.emit('step', 'Committed follow-up fixes');
+        claudeSummary = result.resultText;
+      }
+
+      if (remoteSha) {
+        ctx.emit('step', `Pushing the rebased ${branch} (force-with-lease)`);
+        try {
+          await git.pushForceWithLease(cwd, branch, remoteSha);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return { status: 'failed', error: `Rebased locally, but the push was refused (the branch may have changed on GitHub meanwhile): ${message}` };
+        }
+      }
+
+      const fresh = getItemRow(itemId);
+      if (fresh.prNumber && project.git.githubRepo) {
+        const note = conflicts.length
+          ? `Claude resolved conflicts in: ${conflicts.map((f) => `\`${f}\``).join(', ')}\n\n${claudeSummary.slice(0, 4000)}`
+          : 'There were no conflicts.';
+        await gh.commentOnPr(project.git.githubRepo, fresh.prNumber, `Shipyard rebased this branch onto \`${baseBranch}\` @ \`${base.sha}\`. ${note}`).catch(() => undefined);
+        await syncPr(itemId).catch(() => undefined);
+        syncLater(itemId, [10_000]);
+      }
+      const message = conflicts.length
+        ? `Rebased onto ${baseBranch} @ ${base.sha}; Claude resolved conflicts in ${conflicts.length} file(s)`
+        : `Rebased onto ${baseBranch} @ ${base.sha} with no conflicts`;
+      logActivity({ projectId: project.id, itemId, kind: 'run_finished', message, meta: { runId: ctx.runId } });
+      ctx.emit('result', message);
+      return { status: 'succeeded', summary: message };
+    },
+    writeGroup(project),
+  );
+  return runToDto(getRunRow(run.id));
 }
 
 /** Attach a PR the owner opened by hand (URL or number). */

@@ -61,7 +61,7 @@ export function DashboardPage() {
         <div className="space-y-6 lg:col-span-2">
           {data.activeRuns.length > 0 && (
             <Card>
-              <CardHeader icon={<Sparkles className="size-4 text-amber-400" />} title="Claude is working" />
+              <CardHeader icon={<Sparkles className="size-4 text-amber-400" />} title="Claude runs in progress" />
               <ul className="divide-y divide-line">
                 {data.activeRuns.map((r) => (
                   <li key={r.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
@@ -77,7 +77,9 @@ export function DashboardPage() {
                         Analysing {r.projectName}
                       </Link>
                     )}
-                    <span className="text-xs text-faint">{timeAgo(r.startedAt ?? r.createdAt)}</span>
+                    <span className="max-w-64 truncate text-xs text-faint" title={r.waitingReason ?? undefined}>
+                      {r.status === 'queued' ? (r.waitingReason ?? 'Queued') : timeAgo(r.startedAt ?? r.createdAt)}
+                    </span>
                   </li>
                 ))}
               </ul>

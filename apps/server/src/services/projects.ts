@@ -17,6 +17,7 @@ import { items, projects, runs, type ProjectRow } from '../db/schema.js';
 import { bus } from '../lib/events.js';
 import { badRequest, conflict, keyPrefixFor, newId, notFound, now, pickColor, slugify } from '../lib/util.js';
 import { createItem } from './items.js';
+import { pumpQueue } from './runs.js';
 import { getGitInfo, removeWorktree } from './git.js';
 import { listOpenIssues } from './github.js';
 import { toProject } from './mappers.js';
@@ -143,6 +144,8 @@ export function updateProject(id: string, input: UpdateProjectInput): Project {
     .where(eq(projects.id, id))
     .run();
   bus.publish({ type: 'project.changed', projectId: id });
+  // A higher parallel limit may let queued runs start now.
+  if (input.settings) pumpQueue();
   return getProject(id);
 }
 

@@ -40,6 +40,8 @@ const settingsFields = {
   customInstructions: z.string(),
   /** Delete the worktree once the PR merges. */
   cleanupWorktreeOnMerge: z.boolean(),
+  /** How many implementation runs may change this repo at the same time. */
+  maxParallelImplementations: z.number().int().min(1).max(8),
 };
 
 export const projectSettingsSchema = z.object({
@@ -54,6 +56,7 @@ export const projectSettingsSchema = z.object({
   maxBudgetUsd: settingsFields.maxBudgetUsd.default(5),
   customInstructions: settingsFields.customInstructions.default(''),
   cleanupWorktreeOnMerge: settingsFields.cleanupWorktreeOnMerge.default(true),
+  maxParallelImplementations: settingsFields.maxParallelImplementations.default(1),
 });
 export type ProjectSettings = z.infer<typeof projectSettingsSchema>;
 

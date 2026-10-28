@@ -70,6 +70,10 @@ export function toItem(row: ItemRow, keyPrefix: string): BacklogItem {
             changedFiles: row.prChangedFiles,
             mergedAt: row.prMergedAt,
             lastSyncedAt: row.prSyncedAt,
+            mergeable: row.prMergeable,
+            mergeState: row.prMergeState,
+            needsRebase: row.prState === 'OPEN' && (row.prMergeable === 'CONFLICTING' || row.prMergeState === 'DIRTY'),
+            behindBase: row.prState === 'OPEN' && row.prMergeState === 'BEHIND',
           }
         : null,
     lastRunId: row.lastRunId,
@@ -82,7 +86,7 @@ export function toItem(row: ItemRow, keyPrefix: string): BacklogItem {
   };
 }
 
-export function toRun(row: RunRow): Run {
+export function toRun(row: RunRow, waitingReason: string | null = null): Run {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -102,6 +106,7 @@ export function toRun(row: RunRow): Run {
     createdAt: row.createdAt,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
+    waitingReason: row.status === 'queued' ? waitingReason : null,
   };
 }
 

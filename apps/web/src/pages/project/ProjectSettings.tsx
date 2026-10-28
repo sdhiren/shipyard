@@ -96,9 +96,23 @@ export function ProjectSettings({ project }: { project: Project }) {
 
       <Card className="space-y-4 p-5">
         <h3 className="text-sm font-semibold">Delivery</h3>
-        <Field label="Branch prefix">
-          <Input value={s.branchPrefix} onChange={(e) => set('branchPrefix', e.target.value)} className="font-mono text-xs" />
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Branch prefix">
+            <Input value={s.branchPrefix} onChange={(e) => set('branchPrefix', e.target.value)} className="font-mono text-xs" />
+          </Field>
+          <Field
+            label="Parallel implementations"
+            hint="How many items Claude may implement in this repo at once. Extra items wait in the queue. 1 avoids PRs that conflict with each other."
+          >
+            <Input
+              type="number"
+              min={1}
+              max={8}
+              value={s.maxParallelImplementations}
+              onChange={(e) => set('maxParallelImplementations', Math.min(8, Math.max(1, Number(e.target.value) || 1)))}
+            />
+          </Field>
+        </div>
         <div className="flex flex-col gap-3">
           <Toggle checked={s.autoPr} onChange={(v) => set('autoPr', v)} label="Push and open a PR automatically when Claude finishes" />
           <Toggle checked={s.draftPr} onChange={(v) => set('draftPr', v)} label="Open PRs as drafts" />

@@ -60,8 +60,10 @@ export const EFFORT_POINTS: Record<Effort, number> = { xs: 1, s: 2, m: 3, l: 5, 
 export const ITEM_SOURCES = ['manual', 'ai', 'backlog_file', 'todo_comment', 'github_issue'] as const;
 export type ItemSource = (typeof ITEM_SOURCES)[number];
 
-export const RUN_KINDS = ['analyze', 'plan', 'implement', 'revise'] as const;
+export const RUN_KINDS = ['analyze', 'plan', 'implement', 'revise', 'rebase'] as const;
 export type RunKind = (typeof RUN_KINDS)[number];
+/** Run kinds that change code in a project's worktrees; these count toward its parallel limit. */
+export const WRITE_RUN_KINDS: RunKind[] = ['implement', 'revise', 'rebase'];
 
 export const RUN_STATUSES = ['queued', 'running', 'succeeded', 'failed', 'cancelled'] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
@@ -91,6 +93,9 @@ export const FOCUS_LABELS: Record<AnalysisFocus, string> = {
 
 export const PR_STATES = ['OPEN', 'CLOSED', 'MERGED'] as const;
 export type PrState = (typeof PR_STATES)[number];
+
+export const MERGEABLE_STATES = ['MERGEABLE', 'CONFLICTING', 'UNKNOWN'] as const;
+export type MergeableState = (typeof MERGEABLE_STATES)[number];
 
 export const CHECKS_STATES = ['pending', 'passing', 'failing', 'none'] as const;
 export type ChecksState = (typeof CHECKS_STATES)[number];

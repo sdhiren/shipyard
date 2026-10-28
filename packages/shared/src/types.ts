@@ -6,6 +6,7 @@ import type {
   ItemSource,
   ItemStatus,
   ItemType,
+  MergeableState,
   PrState,
   Priority,
   RunKind,
@@ -118,6 +119,14 @@ export interface PullRequestInfo {
   changedFiles: number | null;
   mergedAt: string | null;
   lastSyncedAt: string | null;
+  /** GitHub's view of whether the PR can merge; UNKNOWN while it recalculates. */
+  mergeable: MergeableState | null;
+  /** GitHub mergeStateStatus, e.g. CLEAN, DIRTY (conflicts), BEHIND, BLOCKED. */
+  mergeState: string | null;
+  /** The PR conflicts with its base branch and must be rebased. */
+  needsRebase: boolean;
+  /** Mergeable, but the base has moved on and branch protection wants it updated. */
+  behindBase: boolean;
 }
 
 export interface Run {
@@ -139,6 +148,8 @@ export interface Run {
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
+  /** Why a queued run hasn't started yet (e.g. waiting for another item in the same repo). */
+  waitingReason: string | null;
 }
 
 export type RunEventType = 'system' | 'text' | 'tool_use' | 'tool_result' | 'status' | 'stderr' | 'result' | 'step';

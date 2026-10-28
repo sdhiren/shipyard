@@ -140,7 +140,8 @@ export function runClaude(opts: ClaudeRunOptions): Promise<ClaudeRunResult> {
     const started = Date.now();
     const child = spawn(config.claudeBin, args, {
       cwd: opts.cwd,
-      env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'shipyard' },
+      // A non-interactive editor so git commands (rebase --continue, commit) can never hang waiting on one.
+      env: { ...process.env, CLAUDE_CODE_ENTRYPOINT: 'shipyard', GIT_EDITOR: 'true', GIT_SEQUENCE_EDITOR: 'true' },
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 

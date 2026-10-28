@@ -106,6 +106,22 @@ ${feedback}
 Make the requested changes on the current branch, keep the tests passing${test ? ` (\`${test}\`)` : ''}, and commit them. Do not push. End with a short summary of what you changed.`;
 }
 
+export function rebasePrompt(project: ProjectRow, item: ItemRow, key: string, opts: { onto: string; ontoSubject: string; conflicts: string[] }): string {
+  const test = project.settings.testCommand;
+  return `You implemented ${key} ("${item.title}") on branch \`${item.branch}\`. Other work has since merged into the base branch, and Shipyard has started \`git rebase ${opts.onto}\` (latest: "${opts.ontoSubject}") to bring this branch up to date. The rebase stopped with conflicts.
+
+Files with conflicts right now:
+${opts.conflicts.map((f) => `- ${f}`).join('\n') || '- (run git status to see them)'}
+
+Resolve the rebase:
+- For each conflict, read both sides and the surrounding code. Keep the intent of both changes: what landed on ${opts.onto} and what this branch adds for ${key}. Don't simply pick one side.
+- Remove every conflict marker, \`git add\` the resolved files, then run \`git rebase --continue\`. Repeat if later commits conflict too. The editor is non-interactive, so commit messages are kept as they are.
+${test ? `- When the rebase is complete, run \`${test}\` and fix anything the merge broke, committing the fixes.` : '- When the rebase is complete, run the tests or build if the project has them, and commit any fixes.'}
+- Do not run \`git rebase --abort\`, do not push, and don't make changes unrelated to resolving the rebase.
+
+End with a short summary of how you resolved each conflict.`;
+}
+
 export function prBody(item: ItemRow, key: string, summary: string, diffStat: string, base?: { branch: string; sha: string | null }): string {
   return `${summary.trim() || item.title}
 

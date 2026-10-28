@@ -239,6 +239,92 @@ export function describeWorktree(r: WorktreeResult, branch: string): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Rebasing a PR branch onto the latest base
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch a branch's state on origin into refs/remotes/origin/<branch>.
+ * Returns its SHA, or null when the branch isn't on origin.
+ */
+export async function fetchRemoteBranch(repoPath: string, branch: string): Promise<string | null> {
+  const r = await exec('git', ['fetch', '--no-tags', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`], {
+    cwd: repoPath,
+    timeoutMs: 120_000,
+    env: { GIT_TERMINAL_PROMPT: '0' },
+  });
+  if (r.code !== 0) {
+    if (/couldn't find remote ref/i.test(r.stderr)) return null;
+    throw new Error(`Couldn't fetch ${branch} from origin: ${(r.stderr || r.stdout).trim().split('\n').pop()}`);
+  }
+  return (await gitOk(repoPath, ['rev-parse', `refs/remotes/origin/${branch}`])).trim();
+}
+
+export async function isAncestor(cwd: string, ancestor: string, descendant = 'HEAD'): Promise<boolean> {
+  return (await git(cwd, ['merge-base', '--is-ancestor', ancestor, descendant])).code === 0;
+}
+
+export async function headSha(cwd: string): Promise<string> {
+  return (await gitOk(cwd, ['rev-parse', 'HEAD'])).trim();
+}
+
+export async function isRebaseInProgress(cwd: string): Promise<boolean> {
+  for (const marker of ['rebase-merge', 'rebase-apply']) {
+    const p = (await gitOk(cwd, ['rev-parse', '--git-path', marker])).trim();
+    try {
+      await fs.access(path.isAbsolute(p) ? p : path.join(cwd, p));
+      return true;
+    } catch {
+      // not this one
+    }
+  }
+  return false;
+}
+
+/** Files git currently reports as unmerged (only meaningful mid-rebase). */
+export async function conflictedFiles(cwd: string): Promise<string[]> {
+  const r = await git(cwd, ['diff', '--name-only', '--diff-filter=U']);
+  return r.stdout.split('\n').filter(Boolean);
+}
+
+/**
+ * Start `git rebase <onto>`. On a clean rebase returns ok. On conflicts the
+ * rebase is left in progress (for Claude to resolve) and the files are listed.
+ */
+export async function beginRebase(cwd: string, onto: string): Promise<{ ok: true } | { ok: false; conflicts: string[] }> {
+  const r = await exec('git', ['rebase', onto], { cwd, timeoutMs: 120_000, env: { GIT_EDITOR: 'true', GIT_SEQUENCE_EDITOR: 'true' } });
+  if (r.code === 0) return { ok: true };
+  if (!(await isRebaseInProgress(cwd))) throw new Error(`git rebase failed: ${(r.stderr || r.stdout).trim()}`);
+  return { ok: false, conflicts: await conflictedFiles(cwd) };
+}
+
+export async function fastForwardTo(cwd: string, ref: string): Promise<void> {
+  await gitOk(cwd, ['merge', '--ff-only', ref]);
+}
+
+/** Put the branch back on a known commit (used to undo a failed rebase). */
+export async function resetHard(cwd: string, sha: string): Promise<void> {
+  await gitOk(cwd, ['reset', '--hard', sha]);
+}
+
+export async function abortRebase(cwd: string): Promise<void> {
+  if (await isRebaseInProgress(cwd)) await git(cwd, ['rebase', '--abort']);
+}
+
+/** Tracked files that still contain conflict markers. */
+export async function filesWithConflictMarkers(cwd: string): Promise<string[]> {
+  const r = await git(cwd, ['grep', '-l', '-I', '-E', '^(<<<<<<<|>>>>>>>)( |$)']);
+  return r.code === 0 ? r.stdout.split('\n').filter(Boolean) : [];
+}
+
+/**
+ * Push a rewritten branch, refusing if origin has moved since we last saw it
+ * (so commits pushed by someone else are never overwritten).
+ */
+export async function pushForceWithLease(cwd: string, branch: string, expectedRemoteSha: string): Promise<void> {
+  await gitOk(cwd, ['push', `--force-with-lease=refs/heads/${branch}:${expectedRemoteSha}`, 'origin', `HEAD:refs/heads/${branch}`]);
+}
+
 /** Short SHA of the commit this branch forked from, for PR descriptions. */
 export async function mergeBaseShort(cwd: string, baseBranch: string): Promise<string | null> {
   for (const ref of [`origin/${baseBranch}`, baseBranch]) {
