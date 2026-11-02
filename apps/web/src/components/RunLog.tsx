@@ -1,9 +1,9 @@
 import type { RunEvent } from '@shipyard/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronRight, CircleAlert, Square, Terminal } from 'lucide-react';
+import { ChevronDown, ChevronRight, CircleAlert, KeyRound, Square, Terminal } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../api/client';
-import { useRun } from '../api/hooks';
+import { isSignInError, openClaudeSignIn, useRun } from '../api/hooks';
 import { subscribeRunEvents } from '../api/live';
 import { cn, formatCost, formatDuration } from '../lib/utils';
 import { Md, RunStatusIcon } from './domain';
@@ -104,7 +104,12 @@ export function RunLog({ runId, className, compact }: { runId: string; className
         {run?.error && (
           <div className="mt-2 flex gap-2 rounded-lg border border-rose-500/30 bg-rose-500/5 p-2 font-sans text-xs text-rose-400">
             <CircleAlert className="mt-0.5 size-3.5 shrink-0" />
-            <span className="whitespace-pre-wrap">{run.error}</span>
+            <span className="flex-1 whitespace-pre-wrap">{run.error}</span>
+            {isSignInError(run.error) && (
+              <Button size="xs" variant="primary" icon={<KeyRound className="size-3" />} onClick={openClaudeSignIn}>
+                Sign in to Claude
+              </Button>
+            )}
           </div>
         )}
       </div>

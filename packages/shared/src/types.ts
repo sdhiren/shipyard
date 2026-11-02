@@ -247,6 +247,26 @@ export interface DiscoveredRepo {
   alreadyAdded: boolean;
 }
 
+/** What `claude auth status` reports. `loggedIn` is null when it couldn't be determined. */
+export interface ClaudeAuthStatus {
+  loggedIn: boolean | null;
+  authMethod: string | null;
+  email: string | null;
+  checkedAt: string;
+}
+
+export type ClaudeLoginState = 'starting' | 'waiting_for_code' | 'verifying' | 'succeeded' | 'failed' | 'cancelled';
+
+/** A `claude auth login` flow driven from the Shipyard UI. */
+export interface ClaudeLoginSession {
+  id: string;
+  state: ClaudeLoginState;
+  /** The sign-in page the CLI asks the user to open. */
+  url: string | null;
+  error: string | null;
+  startedAt: string;
+}
+
 /** Server-sent events pushed to every connected browser. */
 export type LiveEvent =
   | { type: 'item.changed'; projectId: string; itemId: string }
@@ -255,4 +275,5 @@ export type LiveEvent =
   | { type: 'run.changed'; runId: string; projectId: string; itemId: string | null; status: RunStatus }
   | { type: 'run.event'; runId: string; event: RunEvent }
   | { type: 'analysis.changed'; analysisId: string; projectId: string }
-  | { type: 'activity'; activity: Activity };
+  | { type: 'activity'; activity: Activity }
+  | { type: 'claude.auth'; status: ClaudeAuthStatus; login: ClaudeLoginSession | null };

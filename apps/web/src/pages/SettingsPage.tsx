@@ -1,11 +1,11 @@
 import type { GlobalSettings } from '@shipyard/shared';
 import type { Project } from '@shipyard/shared';
 import { useQuery } from '@tanstack/react-query';
-import { ArchiveRestore, CircleCheck, CircleX, RefreshCw, Trash2 } from 'lucide-react';
+import { ArchiveRestore, CircleCheck, CircleX, KeyRound, RefreshCw, Trash2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
-import { useAction, useHealth, useSettings } from '../api/hooks';
+import { openClaudeSignIn, useAction, useClaudeAuth, useHealth, useSettings } from '../api/hooks';
 import { RemoveProjectDialog, useRestoreProject } from '../components/dialogs/ProjectLifecycle';
 import { ProjectDot } from '../components/domain';
 import { Button, Card, Field, Input, Select, Spinner, Textarea } from '../components/ui';
@@ -48,6 +48,7 @@ export function SettingsPage() {
         {health && (
           <div className="divide-y divide-line">
             <Check ok={health.claude} label="Claude Code CLI available" fix="npm install -g @anthropic-ai/claude-code && claude" />
+            {health.claude && <ClaudeSignInRow />}
             <Check ok={health.gh.installed} label="GitHub CLI installed" fix="brew install gh" />
             <Check ok={health.gh.authenticated} label="GitHub CLI signed in" fix="gh auth login" />
             <div className="py-2 text-xs text-faint">
@@ -154,5 +155,27 @@ function ArchivedProjects() {
       )}
       {removing && <RemoveProjectDialog project={removing} open stayOnPage onClose={() => setRemoving(null)} />}
     </Card>
+  );
+}
+
+function ClaudeSignInRow() {
+  const { data } = useClaudeAuth();
+  const status = data?.status;
+  const ok = status?.loggedIn === true;
+  return (
+    <div className="flex items-start gap-3 py-2">
+      {ok ? <CircleCheck className="mt-0.5 size-4 text-emerald-400" /> : <CircleX className="mt-0.5 size-4 text-rose-400" />}
+      <div className="flex-1">
+        <div className="text-sm">Claude Code signed in{ok && status?.email ? ` as ${status.email}` : ''}</div>
+        {!ok && (
+          <div className="text-xs text-muted">
+            {status?.loggedIn === false ? 'The login is missing or expired, so Claude runs fail.' : "Couldn't check the sign-in."}
+          </div>
+        )}
+      </div>
+      <Button size="sm" variant={ok ? 'ghost' : 'primary'} icon={<KeyRound className="size-3.5" />} onClick={openClaudeSignIn}>
+        {ok ? 'Re-authenticate' : 'Sign in'}
+      </Button>
+    </div>
   );
 }

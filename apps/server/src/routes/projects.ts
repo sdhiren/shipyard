@@ -3,6 +3,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { listActivity } from '../services/activity.js';
 import { getAnalysis, listAnalyses, startAnalysis } from '../services/agent.js';
+import { assertSignedIn } from '../services/claude/auth.js';
 import { createItem, listItems } from '../services/items.js';
 import { applyImports, createProject, deleteProject, discover, getProject, listProjects, previewImports, rescanProject, updateProject } from '../services/projects.js';
 
@@ -65,6 +66,7 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/projects/:id/analyses', async (req) => listAnalyses(idParams.parse(req.params).id));
 
   app.post('/api/projects/:id/analyses', async (req, reply) => {
+    await assertSignedIn();
     const analysis = startAnalysis(idParams.parse(req.params).id, analyzeSchema.parse(req.body ?? {}));
     return reply.code(202).send(analysis);
   });

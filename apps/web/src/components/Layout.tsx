@@ -5,6 +5,7 @@ import {
   CircleAlert,
   FolderPlus,
   Inbox,
+  KeyRound,
   LayoutDashboard,
   Moon,
   Pin,
@@ -18,11 +19,12 @@ import {
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
-import { useHealth, useProjects } from '../api/hooks';
+import { openClaudeSignIn, SIGN_IN_EVENT, useClaudeAuth, useHealth, useProjects } from '../api/hooks';
 import { useLiveConnection, useLiveUpdates } from '../api/live';
 import { UiContext, useUi, type Ui } from '../lib/ui-context';
 import { cn, isTypingTarget } from '../lib/utils';
 import { AddProjectDialog } from './dialogs/AddProjectDialog';
+import { ClaudeSignInDialog } from './dialogs/ClaudeSignInDialog';
 import { NewItemDialog } from './dialogs/NewItemDialog';
 import { ProjectDot } from './domain';
 import { ItemDrawer } from './ItemDrawer';
@@ -53,6 +55,14 @@ export function Layout() {
   const [newItem, setNewItem] = useState<{ projectId?: string; status?: ItemStatus } | null>(null);
   const [addProject, setAddProject] = useState(false);
   const [palette, setPalette] = useState(false);
+  const [signIn, setSignIn] = useState(false);
+
+  // Any part of the app (error toasts, failed runs) can ask for the sign-in dialog.
+  useEffect(() => {
+    const open = () => setSignIn(true);
+    window.addEventListener(SIGN_IN_EVENT, open);
+    return () => window.removeEventListener(SIGN_IN_EVENT, open);
+  }, []);
   const [theme, toggleTheme] = useTheme();
   const location = useLocation();
   const itemId = params.get('item');
@@ -116,6 +126,7 @@ export function Layout() {
       <NewItemDialog open={!!newItem} onClose={() => setNewItem(null)} projectId={newItem?.projectId} status={newItem?.status} />
       <AddProjectDialog open={addProject} onClose={() => setAddProject(false)} />
       <CommandPalette open={palette} onClose={() => setPalette(false)} />
+      <ClaudeSignInDialog open={signIn} onClose={() => setSignIn(false)} />
     </UiContext.Provider>
   );
 }
@@ -150,6 +161,8 @@ function Sidebar({ theme, toggleTheme }: { theme: string; toggleTheme: () => voi
   const ui = useUi();
   const inbox = projects?.reduce((n, p) => n + p.stats.inbox, 0) ?? 0;
   const activeRuns = projects?.reduce((n, p) => n + p.stats.activeRuns, 0) ?? 0;
+  const { data: claudeAuth } = useClaudeAuth();
+  const signedOut = health?.claude && (claudeAuth?.status ?? health.claudeAuth)?.loggedIn === false;
   const problems = health && (!health.claude || !health.gh.authenticated);
 
   return (
@@ -209,6 +222,16 @@ function Sidebar({ theme, toggleTheme }: { theme: string; toggleTheme: () => voi
       </nav>
 
       <div className="space-y-1 border-t border-line p-3">
+        {signedOut && (
+          <button
+            onClick={openClaudeSignIn}
+            className="flex w-full items-center gap-2 rounded-lg bg-amber-500/10 px-2.5 py-2 text-left text-xs text-amber-400 transition-colors hover:bg-amber-500/20"
+          >
+            <KeyRound className="size-3.5 shrink-0" />
+            <span className="flex-1">Claude isn't signed in</span>
+            <span className="font-medium underline-offset-2 hover:underline">Sign in</span>
+          </button>
+        )}
         {problems && (
           <NavLink to="/settings" className="flex items-center gap-2 rounded-lg bg-amber-500/10 px-2.5 py-2 text-xs text-amber-400">
             <CircleAlert className="size-3.5 shrink-0" />

@@ -1,9 +1,28 @@
-import type { DecisionInput } from '@shipyard/shared';
+import { CLAUDE_SIGNIN_ERROR, type DecisionInput } from '@shipyard/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { api, type ItemQuery } from './client';
+import { api, ApiError, type ItemQuery } from './client';
 
 export const useHealth = () => useQuery({ queryKey: ['health'], queryFn: api.health, staleTime: 60_000 });
+export const useClaudeAuth = (opts: { pollWhileSigningIn?: boolean } = {}) =>
+  useQuery({
+    queryKey: ['claude-auth'],
+    queryFn: () => api.claudeAuth(),
+    staleTime: 30_000,
+    // Live events normally keep this current; polling during a sign-in is a safety net.
+    refetchInterval: (q) => {
+      const state = q.state.data?.login?.state;
+      return opts.pollWhileSigningIn && (state === 'starting' || state === 'waiting_for_code' || state === 'verifying') ? 2000 : false;
+    },
+  });
+
+/** Opens the "Sign in to Claude" dialog from anywhere, including non-React code. */
+export const SIGN_IN_EVENT = 'shipyard:claude-sign-in';
+export const openClaudeSignIn = () => window.dispatchEvent(new Event(SIGN_IN_EVENT));
+
+/** A run failed because Claude Code wasn't signed in (including errors recorded before Shipyard labelled them). */
+export const isSignInError = (error: string | null | undefined): boolean =>
+  !!error && (error.startsWith(CLAUDE_SIGNIN_ERROR) || /failed to authenticate|oauth session expired/i.test(error));
 export const useDashboard = () => useQuery({ queryKey: ['dashboard'], queryFn: api.dashboard });
 export const useSettings = () => useQuery({ queryKey: ['settings'], queryFn: api.settings });
 export const useProjects = () => useQuery({ queryKey: ['projects'], queryFn: () => api.projects() });
@@ -25,7 +44,16 @@ export const useRuns = (params: { projectId?: string; status?: string; limit?: n
   useQuery({ queryKey: ['runs', params], queryFn: () => api.runs(params) });
 export const useRun = (id: string | undefined | null) => useQuery({ queryKey: ['run', id], queryFn: () => api.run(id!), enabled: !!id });
 
-const errorToast = (err: unknown) => toast.error(err instanceof Error ? err.message : String(err));
+/** Error toast; a "Claude isn't signed in" error (401) gets a Sign in button. */
+export function showError(err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err);
+  if (err instanceof ApiError && err.status === 401) {
+    toast.error(message, { action: { label: 'Sign in', onClick: openClaudeSignIn }, duration: 10_000 });
+  } else {
+    toast.error(message);
+  }
+}
+const errorToast = showError;
 
 const DECISION_TOASTS: Record<DecisionInput['decision'], string> = {
   implement: 'Claude started implementing',
