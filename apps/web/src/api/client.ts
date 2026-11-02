@@ -3,6 +3,8 @@ import type {
   Analysis,
   AnalyzeInput,
   BacklogItem,
+  ClaudeAuthStatus,
+  ClaudeLoginSession,
   Comment,
   CreateCommentInput,
   CreateItemInput,
@@ -52,6 +54,7 @@ const del = <T>(url: string) => request<T>('DELETE', url);
 export interface Health {
   ok: boolean;
   claude: boolean;
+  claudeAuth: ClaudeAuthStatus;
   gh: { installed: boolean; authenticated: boolean };
   dataDir: string;
   queue: { running: string[]; queued: string[] };
@@ -70,6 +73,10 @@ const qs = (params: Record<string, string | undefined>) => {
 
 export const api = {
   health: () => get<Health>('/health'),
+  claudeAuth: (refresh = false) => get<{ status: ClaudeAuthStatus; login: ClaudeLoginSession | null }>(`/claude/auth${refresh ? '?refresh=true' : ''}`),
+  startClaudeLogin: (method: 'claudeai' | 'console') => post<ClaudeLoginSession>('/claude/login', { method }),
+  submitClaudeCode: (code: string) => post<ClaudeLoginSession>('/claude/login/code', { code }),
+  cancelClaudeLogin: () => del<void>('/claude/login'),
   dashboard: () => get<DashboardSummary>('/dashboard'),
   settings: () => get<GlobalSettings>('/settings'),
   updateSettings: (s: Partial<GlobalSettings>) => put<GlobalSettings>('/settings', s),

@@ -13,6 +13,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { listActivity } from '../services/activity.js';
 import { addComment, deleteComment, listComments } from '../services/comments.js';
+import { assertSignedIn } from '../services/claude/auth.js';
 import {
   discardWorkspace,
   getItemDiff,
@@ -54,10 +55,15 @@ export async function itemRoutes(app: FastifyInstance): Promise<void> {
     return moveItem(idParams.parse(req.params).id, body.status, body.position);
   });
 
-  app.post('/api/items/:id/decision', async (req) => applyDecision(idParams.parse(req.params).id, decisionSchema.parse(req.body)));
+  app.post('/api/items/:id/decision', async (req) => {
+    const input = decisionSchema.parse(req.body);
+    if (input.decision === 'implement' || input.decision === 'plan') await assertSignedIn();
+    return applyDecision(idParams.parse(req.params).id, input);
+  });
 
   app.post('/api/items/bulk-decision', async (req) => {
     const { itemIds, ...decision } = bulkDecisionSchema.parse(req.body);
+    if (decision.decision === 'implement' || decision.decision === 'plan') await assertSignedIn();
     const results = itemIds.map((id) => {
       try {
         applyDecision(id, decision);
@@ -78,13 +84,20 @@ export async function itemRoutes(app: FastifyInstance): Promise<void> {
 
   app.get('/api/items/:id/runs', async (req) => listRuns({ itemId: idParams.parse(req.params).id }));
 
-  app.post('/api/items/:id/plan', async (req, reply) => reply.code(202).send(startPlan(idParams.parse(req.params).id)));
+  app.post('/api/items/:id/plan', async (req, reply) => {
+    await assertSignedIn();
+    return reply.code(202).send(startPlan(idParams.parse(req.params).id));
+  });
 
-  app.post('/api/items/:id/implement', async (req, reply) => reply.code(202).send(startImplementation(idParams.parse(req.params).id)));
+  app.post('/api/items/:id/implement', async (req, reply) => {
+    await assertSignedIn();
+    return reply.code(202).send(startImplementation(idParams.parse(req.params).id));
+  });
 
   app.post('/api/items/:id/revise', async (req, reply) => {
     const id = idParams.parse(req.params).id;
     const { feedback } = reviseSchema.parse(req.body);
+    await assertSignedIn();
     if (isItemBusy(id)) throw conflict('Claude is already working on this item');
     addComment({ itemId: id, author: 'user', kind: 'change_request', body: feedback });
     return reply.code(202).send(startRevision(id, feedback));
@@ -108,6 +121,8 @@ export async function itemRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/items/:id/comments', async (req, reply) => {
     const id = idParams.parse(req.params).id;
     const input = createCommentSchema.parse(req.body);
+    // Check before saving, so the owner's message stays in the composer if they need to sign in first.
+    if (input.intent !== 'comment') await assertSignedIn();
     if (input.intent !== 'comment' && isItemBusy(id)) {
       throw conflict('Claude is already working on this item. Post it as a plain comment, or wait until it finishes.');
     }
@@ -117,7 +132,10 @@ export async function itemRoutes(app: FastifyInstance): Promise<void> {
   });
 
   /** Ask Claude to reply to the thread again (e.g. after a failed reply). */
-  app.post('/api/items/:id/discuss', async (req, reply) => reply.code(202).send(startDiscussion(idParams.parse(req.params).id)));
+  app.post('/api/items/:id/discuss', async (req, reply) => {
+    await assertSignedIn();
+    return reply.code(202).send(startDiscussion(idParams.parse(req.params).id));
+  });
 
   app.delete('/api/comments/:id', async (req, reply) => {
     deleteComment(idParams.parse(req.params).id);

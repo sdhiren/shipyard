@@ -70,6 +70,10 @@ export function useLiveUpdates(): void {
         case 'analysis.changed':
           invalidate(['analyses', e.projectId], ['project', e.projectId]);
           break;
+        case 'claude.auth':
+          qc.setQueryData(['claude-auth'], { status: e.status, login: e.login });
+          invalidate(['health']);
+          break;
         case 'activity':
           invalidate(['activity', e.activity.projectId], ['dashboard']);
           if (e.activity.itemId) invalidate(['item-activity', e.activity.itemId]);

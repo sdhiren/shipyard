@@ -1,7 +1,8 @@
 import { spawn } from 'node:child_process';
-import type { RunEventType } from '@shipyard/shared';
+import { CLAUDE_SIGNIN_ERROR, type RunEventType } from '@shipyard/shared';
 import { config } from '../../config.js';
 import { truncate } from '../../lib/util.js';
+import { isAuthFailure, markSignedOut } from './auth.js';
 
 /**
  * Drives the Claude Code CLI in headless mode (`claude -p --output-format stream-json`).
@@ -237,9 +238,16 @@ export function runClaude(opts: ClaudeRunOptions): Promise<ClaudeRunResult> {
       const isError = !r || Boolean(r.is_error) || r.subtype !== 'success';
       const cancelled = opts.signal?.aborted ?? false;
       let error: string | null = null;
+      const detail = r?.result ? truncate(String(r.result), 1000) : '';
       if (cancelled) error = 'Cancelled by user';
-      else if (!r) error = `Claude exited with code ${code} without a result. ${truncate(stderr.trim(), 1500)}`;
-      else if (isError) error = `Claude finished with "${String(r.subtype)}"${r.result ? `: ${truncate(String(r.result), 1000)}` : ''}`;
+      else if ((isError || !r) && isAuthFailure(`${detail}\n${stderr}`)) {
+        // Make a lapsed login obvious and fixable rather than a cryptic failure.
+        error = `${CLAUDE_SIGNIN_ERROR}: ${detail || truncate(stderr.trim(), 300) || 'the login expired'}. Sign in to Claude, then retry.`;
+        markSignedOut();
+      } else if (!r) error = `Claude exited with code ${code} without a result. ${truncate(stderr.trim(), 1500)}`;
+      else if (isError) {
+        error = r.subtype === 'success' ? `Claude reported an error${detail ? `: ${detail}` : ''}` : `Claude stopped (${String(r.subtype)})${detail ? `: ${detail}` : ''}`;
+      }
 
       resolve({
         ok: !isError && !cancelled,

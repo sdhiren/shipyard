@@ -1,10 +1,10 @@
 import type { BacklogItem, Comment, CommentIntent, CommentKind, Run } from '@shipyard/shared';
 import { useQueryClient } from '@tanstack/react-query';
-import { CircleAlert, ListChecks, MessageSquare, RotateCcw, Send, Sparkles, Trash2, User, Wrench } from 'lucide-react';
+import { CircleAlert, KeyRound, ListChecks, MessageSquare, RotateCcw, Send, Sparkles, Trash2, User, Wrench } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../api/client';
-import { useItemComments, useItemRuns } from '../api/hooks';
+import { isSignInError, openClaudeSignIn, showError, useItemComments, useItemRuns } from '../api/hooks';
 import { cn, timeAgo } from '../lib/utils';
 import { Md } from './domain';
 import { Badge, Button, Spinner, Textarea } from './ui';
@@ -77,7 +77,7 @@ function usePost(itemId: string) {
       if (intent === 'change_request') toast.success('Claude is revising the branch');
       return true;
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : String(err));
+      showError(err);
       return false;
     } finally {
       setPending(false);
@@ -241,6 +241,11 @@ function FailedReply({ itemId, run, onShowLog }: { itemId: string; run: Run; onS
       <button className="text-xs text-rose-400/80 hover:text-rose-300" onClick={onShowLog}>
         Log
       </button>
+      {isSignInError(run.error) && (
+        <Button size="xs" variant="primary" icon={<KeyRound className="size-3" />} onClick={openClaudeSignIn}>
+          Sign in
+        </Button>
+      )}
       <Button
         size="xs"
         icon={<RotateCcw className="size-3" />}
@@ -251,7 +256,7 @@ function FailedReply({ itemId, run, onShowLog }: { itemId: string; run: Run; onS
             await api.retryDiscussion(itemId);
             void qc.invalidateQueries({ queryKey: ['item-runs', itemId] });
           } catch (err) {
-            toast.error(err instanceof Error ? err.message : String(err));
+            showError(err);
           } finally {
             setPending(false);
           }

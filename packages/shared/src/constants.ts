@@ -134,3 +134,9 @@ export type CommentAuthor = (typeof COMMENT_AUTHORS)[number];
  */
 export const COMMENT_KINDS = ['comment', 'answers', 'change_request', 'plan'] as const;
 export type CommentKind = (typeof COMMENT_KINDS)[number];
+
+/**
+ * Prefix of run errors caused by the Claude CLI not being signed in. The UI
+ * looks for it to offer a "Sign in to Claude" button next to the error.
+ */
+export const CLAUDE_SIGNIN_ERROR = 'Claude Code is not signed in';

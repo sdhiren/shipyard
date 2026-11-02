@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { config } from '../config.js';
 import { bus } from '../lib/events.js';
 import { hasBinary } from '../lib/exec.js';
+import { cancelLogin, getAuthStatus, getLoginSession, startLogin, submitLoginCode } from '../services/claude/auth.js';
 import { getDashboard } from '../services/dashboard.js';
 import { ghAvailable } from '../services/github.js';
 import { pollOpenPrs, startPrTracker } from '../services/pr-tracker.js';
@@ -14,8 +15,27 @@ const idParams = z.object({ id: z.string() });
 
 export async function systemRoutes(app: FastifyInstance): Promise<void> {
   app.get('/api/health', async () => {
-    const [claude, gh] = await Promise.all([hasBinary(config.claudeBin), ghAvailable()]);
-    return { ok: true, claude, gh, dataDir: config.dataDir, queue: queueSnapshot() };
+    const [claude, gh, claudeAuth] = await Promise.all([hasBinary(config.claudeBin), ghAvailable(), getAuthStatus()]);
+    return { ok: true, claude, claudeAuth, gh, dataDir: config.dataDir, queue: queueSnapshot() };
+  });
+
+  // Claude Code sign-in ---------------------------------------------------------
+
+  app.get('/api/claude/auth', async (req) => {
+    const { refresh } = z.object({ refresh: z.enum(['true', 'false']).optional() }).parse(req.query);
+    return { status: await getAuthStatus({ force: refresh === 'true' }), login: getLoginSession() };
+  });
+
+  app.post('/api/claude/login', async (req, reply) => {
+    const { method } = z.object({ method: z.enum(['claudeai', 'console']).default('claudeai') }).parse(req.body ?? {});
+    return reply.code(202).send(startLogin(method));
+  });
+
+  app.post('/api/claude/login/code', async (req) => submitLoginCode(z.object({ code: z.string().min(1).max(4000) }).parse(req.body).code));
+
+  app.delete('/api/claude/login', async (_req, reply) => {
+    cancelLogin();
+    return reply.code(204).send();
   });
 
   app.get('/api/dashboard', async () => getDashboard());
