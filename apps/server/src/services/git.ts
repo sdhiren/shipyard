@@ -384,3 +384,29 @@ export async function recentLog(repoPath: string, n = 15): Promise<string> {
   const r = await git(repoPath, ['log', `-${n}`, '--format=%h %cs %s']);
   return r.code === 0 ? r.stdout.trim() : '';
 }
+
+/**
+ * After a repository is moved, its worktrees still point at the old location.
+ * `git worktree repair` rewrites those links in both directions.
+ */
+export async function repairWorktrees(repoPath: string, worktreePaths: string[]): Promise<boolean> {
+  if (!worktreePaths.length) return true;
+  const r = await git(repoPath, ['worktree', 'repair', ...worktreePaths]);
+  return r.code === 0;
+}
+
+/** Normalise remote URLs so ssh/https spellings of the same repo compare equal. */
+export function sameRemote(a: string | null, b: string | null): boolean {
+  if (!a || !b) return false;
+  const gh = (u: string) => parseGithubRepo(u)?.toLowerCase() ?? null;
+  if (gh(a) && gh(b)) return gh(a) === gh(b);
+  const norm = (u: string) =>
+    u
+      .trim()
+      .toLowerCase()
+      .replace(/^(ssh:\/\/|https?:\/\/|git@)/, '')
+      .replace(':', '/')
+      .replace(/\.git\/?$/, '')
+      .replace(/\/$/, '');
+  return norm(a) === norm(b);
+}

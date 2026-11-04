@@ -83,6 +83,14 @@ export const updateProjectSchema = z.object({
 });
 export type UpdateProjectInput = z.infer<typeof updateProjectSchema>;
 
+/** Point a project at the folder it was moved to. */
+export const relocateProjectSchema = z.object({
+  path: z.string().min(1, 'Path is required'),
+  /** Accept a folder whose git remote differs from the project's. */
+  force: z.boolean().default(false),
+});
+export type RelocateProjectInput = z.input<typeof relocateProjectSchema>;
+
 // ---------------------------------------------------------------------------
 // Backlog items
 // ---------------------------------------------------------------------------

@@ -1,9 +1,10 @@
-import { analyzeSchema, createItemSchema, createProjectSchema, ITEM_STATUSES, ITEM_TYPES, updateProjectSchema } from '@shipyard/shared';
+import { analyzeSchema, createItemSchema, createProjectSchema, ITEM_STATUSES, ITEM_TYPES, relocateProjectSchema, updateProjectSchema } from '@shipyard/shared';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { listActivity } from '../services/activity.js';
 import { getAnalysis, listAnalyses, startAnalysis } from '../services/agent.js';
 import { assertSignedIn } from '../services/claude/auth.js';
+import { findRelocationCandidates, relocateProject } from '../services/relocate.js';
 import { createItem, listItems } from '../services/items.js';
 import { applyImports, createProject, deleteProject, discover, getProject, listProjects, previewImports, rescanProject, updateProject } from '../services/projects.js';
 
@@ -38,6 +39,11 @@ export async function projectRoutes(app: FastifyInstance): Promise<void> {
   });
 
   app.post('/api/projects/:id/rescan', async (req) => rescanProject(idParams.parse(req.params).id));
+
+  /** Folders that look like where this project was moved to (same git remote). */
+  app.get('/api/projects/:id/relocation-candidates', async (req) => findRelocationCandidates(idParams.parse(req.params).id));
+
+  app.post('/api/projects/:id/relocate', async (req) => relocateProject(idParams.parse(req.params).id, relocateProjectSchema.parse(req.body)));
 
   app.get('/api/projects/:id/imports', async (req) => previewImports(idParams.parse(req.params).id));
 

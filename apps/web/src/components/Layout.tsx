@@ -4,6 +4,7 @@ import {
   Anchor,
   CircleAlert,
   FolderPlus,
+  FolderX,
   Inbox,
   KeyRound,
   LayoutDashboard,
@@ -208,6 +209,11 @@ function Sidebar({ theme, toggleTheme }: { theme: string; toggleTheme: () => voi
               <span className="flex items-center gap-1.5">
                 {p.name}
                 {p.pinned && <Pin className="size-3 text-faint" />}
+                {p.folderMissing && (
+                  <span title="Folder not found: update the project's location">
+                    <FolderX className="size-3 text-rose-400" />
+                  </span>
+                )}
                 {p.stats.activeRuns > 0 && <Sparkles className="size-3 animate-pulse text-amber-400" />}
               </span>
             }

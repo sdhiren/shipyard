@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import { CLAUDE_SIGNIN_ERROR, type RunEventType } from '@shipyard/shared';
 import { config } from '../../config.js';
 import { truncate } from '../../lib/util.js';
@@ -226,7 +227,10 @@ export function runClaude(opts: ClaudeRunOptions): Promise<ClaudeRunResult> {
         costUsd: 0,
         durationMs: Date.now() - started,
         numTurns: 0,
-        error: `Could not start "${config.claudeBin}": ${err.message}. Is Claude Code installed and on PATH?`,
+        // Node reports a missing working directory as ENOENT for the command, so check which one it was.
+        error: fs.existsSync(opts.cwd)
+          ? `Could not start "${config.claudeBin}": ${err.message}. Is Claude Code installed and on PATH?`
+          : `The folder Claude should work in no longer exists: ${opts.cwd}. If the project was moved, update its location in Shipyard.`,
         permissionDenials: [],
       });
     });

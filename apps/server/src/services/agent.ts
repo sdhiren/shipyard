@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import {
   analysisResultSchema,
@@ -16,7 +17,7 @@ import { config } from '../config.js';
 import { db } from '../db/client.js';
 import { analyses, items, projects, type AnalysisRow, type ItemRow, type ProjectRow } from '../db/schema.js';
 import { bus } from '../lib/events.js';
-import { badRequest, conflict, newId, notFound, now, slugify } from '../lib/util.js';
+import { badRequest, conflict, HttpError, newId, notFound, now, slugify } from '../lib/util.js';
 import { logActivity } from './activity.js';
 import { runClaude, type ClaudeRunOptions } from './claude/runner.js';
 import { analysisPrompt, discussPrompt, implementPrompt, planPrompt, prBody, rebasePrompt, revisePrompt } from './claude/prompts.js';
@@ -64,7 +65,7 @@ function addItemCost(itemId: string, cost: number): void {
 // ---------------------------------------------------------------------------
 
 export function startAnalysis(projectId: string, rawInput: AnalyzeInput): Analysis {
-  const project = getProjectRow(projectId);
+  const project = getRunnableProject(projectId);
   const input = analyzeSchema.parse(rawInput);
   const running = db
     .select({ id: analyses.id })
@@ -202,6 +203,22 @@ export function getAnalysis(id: string): Analysis {
 // Planning
 // ---------------------------------------------------------------------------
 
+/**
+ * The project row, checked for a usable folder. Claude runs and git work in
+ * the project's folder, so a moved or deleted repo fails here with a clear
+ * message rather than later as a confusing spawn error.
+ */
+function getRunnableProject(projectId: string): ProjectRow {
+  const project = getProjectRow(projectId);
+  if (!fs.existsSync(project.path)) {
+    throw new HttpError(
+      409,
+      `The folder for ${project.name} was not found at ${project.path}. If you moved it, update the project's location (project → Settings → Location, or "Find it" on the project page).`,
+    );
+  }
+  return project;
+}
+
 function assertIdle(itemId: string): void {
   if (isItemBusy(itemId)) throw conflict('Claude is already working on this item');
 }
@@ -235,7 +252,7 @@ function planSummaryComment(p: PlanResult, replanned: boolean): string {
 export function startPlan(itemId: string): Run {
   const item = getItemRow(itemId);
   assertIdle(itemId);
-  const project = getProjectRow(item.projectId);
+  const project = getRunnableProject(item.projectId);
   const cwd = item.worktreePath ?? project.path;
   const prompt = planPrompt(project, item, threadForPrompt(itemId));
   const run = createRun({ projectId: project.id, itemId, kind: 'plan', model: project.settings.model, prompt, cwd });
@@ -264,7 +281,7 @@ export function startPlan(itemId: string): Run {
 export function startDiscussion(itemId: string): Run {
   const item = getItemRow(itemId);
   assertIdle(itemId);
-  const project = getProjectRow(item.projectId);
+  const project = getRunnableProject(item.projectId);
   const key = itemKey(item);
   const cwd = item.worktreePath ?? project.path;
   const prompt = discussPrompt(project, item, key, threadForPrompt(itemId));
@@ -300,7 +317,7 @@ function branchFor(project: ProjectRow, item: ItemRow): string {
 export function startImplementation(itemId: string): Run {
   const item = getItemRow(itemId);
   assertIdle(itemId);
-  const project = getProjectRow(item.projectId);
+  const project = getRunnableProject(item.projectId);
   if (!project.git.isRepo) throw badRequest('This project is not a git repository, so Shipyard cannot create a branch for the work');
   if (['done', 'archived'].includes(item.status)) throw conflict(`Item is ${item.status}`);
 
@@ -414,7 +431,7 @@ export function startRevision(itemId: string, feedback: string): Run {
   const item = getItemRow(itemId);
   assertIdle(itemId);
   if (!item.worktreePath || !item.branch) throw conflict('This item has no workspace yet; implement it first');
-  const project = getProjectRow(item.projectId);
+  const project = getRunnableProject(item.projectId);
   const key = itemKey(item);
   const baseBranch = project.git.defaultBranch ?? 'main';
   const prompt = revisePrompt(project, item, key, feedback);
@@ -560,7 +577,7 @@ export function startRebase(itemId: string): Run {
   const item = getItemRow(itemId);
   assertIdle(itemId);
   if (!item.branch) throw conflict('This item has no branch to rebase yet');
-  const project = getProjectRow(item.projectId);
+  const project = getRunnableProject(item.projectId);
   const key = itemKey(item);
   const branch = item.branch;
   const baseBranch = project.git.defaultBranch ?? 'main';

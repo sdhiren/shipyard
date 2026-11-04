@@ -1,9 +1,10 @@
 import type { Project, ProjectSettings as Settings } from '@shipyard/shared';
-import { Archive, ArchiveRestore, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, FolderSearch, Trash2 } from 'lucide-react';
 import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../../api/client';
 import { useAction } from '../../api/hooks';
 import { RemoveProjectDialog, useArchiveProject, useRestoreProject } from '../../components/dialogs/ProjectLifecycle';
+import { RelocateProjectDialog } from '../../components/dialogs/RelocateProjectDialog';
 import { Button, Card, Field, Input, Select, Textarea, Toggle } from '../../components/ui';
 
 /** Per-project knobs for how Claude works on this repository. */
@@ -19,6 +20,7 @@ export function ProjectSettings({ project }: { project: Project }) {
     invalidate: [['project', project.id], ['projects']],
   });
   const [removing, setRemoving] = useState(false);
+  const [relocating, setRelocating] = useState(false);
   const archive = useArchiveProject();
   const restore = useRestoreProject();
   const set = <K extends keyof Settings>(k: K, v: Settings[K]) => setS((p) => ({ ...p, [k]: v }));
@@ -38,8 +40,13 @@ export function ProjectSettings({ project }: { project: Project }) {
         <Field label="Description" hint="Shown in the UI and given to Claude as context.">
           <Textarea value={description} onChange={(e) => setDescription(e.target.value)} />
         </Field>
-        <Field label="Path">
-          <Input value={project.path} disabled className="font-mono text-xs" />
+        <Field label="Location" hint={project.folderMissing ? 'This folder no longer exists. If you moved the repo, update the location.' : undefined}>
+          <div className="flex gap-2">
+            <Input value={project.path} disabled className={project.folderMissing ? 'font-mono text-xs text-rose-400' : 'font-mono text-xs'} />
+            <Button icon={<FolderSearch className="size-3.5" />} variant={project.folderMissing ? 'primary' : 'secondary'} onClick={() => setRelocating(true)}>
+              Change…
+            </Button>
+          </div>
         </Field>
       </Card>
 
@@ -163,6 +170,7 @@ export function ProjectSettings({ project }: { project: Project }) {
       </Card>
 
       <RemoveProjectDialog project={project} open={removing} onClose={() => setRemoving(false)} />
+      <RelocateProjectDialog project={project} open={relocating} onClose={() => setRelocating(false)} />
     </div>
   );
 }
