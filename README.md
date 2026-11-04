@@ -37,6 +37,7 @@
 **Delivery**
 - **Plan first:** Claude writes an implementation plan, refines the acceptance criteria and re-estimates effort. Any open questions are kept separate from the plan.
 - **Discussion:** every item has a Jira-style thread. Answer the plan's open questions in a quick form, ask Claude anything, or leave plain comments. Claude reads the code and the whole thread, replies there, and revises the plan when the discussion changes it. On items in review, **Request changes** in the same box has Claude revise the branch. Re-planning and implementation both see the discussion.
+- **Attachments:** attach screenshots, PDFs or any other file (up to 20 MB each) when creating an item, in the item's Attachments section, or with a message: pick, drag and drop, or paste. Claude reads images, PDFs and text/Markdown/code during planning, discussion and implementation. Other formats such as Word or Excel are stored for you, but Claude only knows they exist. Attachments are reference only, and Claude never commits them into your repo. They're kept in `~/.shipyard/attachments`; back that folder up along with the database (`make db-backup` only covers SQLite).
 - **Implement:** a fresh `git worktree` on `shipyard/<key>-<slug>`, so your own checkout is never touched. Every run first fetches the latest `main` from origin and branches from it (re-runs are fast-forwarded or rebased onto it when that's safe), so parallel PRs start from the same up-to-date base. Claude codes, runs the project's check command and commits. Shipyard then pushes and opens the PR (optionally as a draft).
 - **Request changes:** Claude resumes the same session on the same branch with your feedback, then pushes to the PR.
 - **PR tracking:** state, draft, CI checks, review decision and mergeability are polled through `gh`. A merged PR moves the item to Done and cleans up the worktree.
@@ -86,7 +87,7 @@ Run `make` to list every target:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `SHIPYARD_DATA_DIR` | `~/.shipyard` | SQLite database and implementation worktrees |
+| `SHIPYARD_DATA_DIR` | `~/.shipyard` | SQLite database, implementation worktrees and attachments |
 | `SHIPYARD_PORT` / `SHIPYARD_HOST` | `4317` / `127.0.0.1` | API bind address (keep it on localhost) |
 | `SHIPYARD_CLAUDE_BIN` | `claude` | Claude Code CLI to run |
 | `SHIPYARD_GH_BIN` | `gh` | GitHub CLI to run |

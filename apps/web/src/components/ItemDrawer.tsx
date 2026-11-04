@@ -1,4 +1,5 @@
 import {
+  ATTACHMENT_MAX_PER_ITEM,
   EFFORTS,
   ITEM_TYPES,
   PRIORITIES,
@@ -39,12 +40,14 @@ import {
   WandSparkles,
   X,
 } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../api/client';
-import { useAction, useDecide, useItem, useItemActivity, useItemRuns, useProject } from '../api/hooks';
+import { showError, useAction, useAttachments, useDecide, useItem, useItemActivity, useItemRuns, useProject } from '../api/hooks';
 import { cn, formatCost, formatDuration, timeAgo } from '../lib/utils';
 import { EffortBadge, Md, PrBadge, PriorityIcon, RunStatusIcon, ScoreBadge, StatusBadge, TypeIcon } from './domain';
+import { AttachmentList, AttachmentPicker, pasteFiles, useFileDrop, useStagedFiles } from './Attachments';
 import { Discussion } from './Discussion';
 import { RunLog } from './RunLog';
 import { Badge, Button, ConfirmDialog, Dialog, Field, Input, Menu, Spinner, Tabs, Textarea } from './ui';
@@ -465,8 +468,10 @@ function ReasonDialog(props: { open: boolean; title: string; description: string
 
 function ReviseDialog({ open, item, onClose }: { open: boolean; item: BacklogItem; onClose: () => void }) {
   const [feedback, setFeedback] = useState('');
+  const staged = useStagedFiles({ uploadTo: item.id });
+  const drop = useFileDrop(staged.add);
   // Posted to the discussion thread, so the feedback stays alongside the conversation.
-  const revise = useAction((f: string) => api.postComment(item.id, { body: f, intent: 'change_request' }), {
+  const revise = useAction((f: string) => api.postComment(item.id, { body: f, intent: 'change_request', attachmentIds: staged.ids }), {
     success: 'Claude is revising the branch',
     invalidate: [['item-comments', item.id], ['item-runs', item.id]],
   });
@@ -486,15 +491,25 @@ function ReviseDialog({ open, item, onClose }: { open: boolean; item: BacklogIte
             variant="primary"
             icon={<Send className="size-3.5" />}
             loading={revise.isPending}
-            disabled={feedback.trim().length < 3}
-            onClick={() => revise.mutate(feedback, { onSuccess: () => (onClose(), setFeedback('')) })}
+            disabled={(feedback.trim().length < 3 && !staged.ids.length) || staged.uploading}
+            onClick={() => revise.mutate(feedback, { onSuccess: () => (onClose(), setFeedback(''), staged.reset()) })}
           >
             Send to Claude
           </Button>
         </>
       }
     >
-      <Textarea autoFocus className="min-h-40" placeholder="e.g. Rename the config flag to RATE_LIMIT_RPS and add a test for the 429 path." value={feedback} onChange={(e) => setFeedback(e.target.value)} />
+      <div {...drop.props} className={cn('space-y-2 rounded-lg', drop.over && 'ring-2 ring-accent/40')}>
+        <Textarea
+          autoFocus
+          className="min-h-40"
+          placeholder="e.g. Rename the config flag to RATE_LIMIT_RPS and add a test for the 429 path."
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          onPaste={pasteFiles(staged.add)}
+        />
+        <AttachmentPicker staged={staged} />
+      </div>
     </Dialog>
   );
 }
@@ -533,6 +548,41 @@ function Section({ title, children, action }: { title: string; children: ReactNo
       </div>
       {children}
     </section>
+  );
+}
+
+/** Files attached to the item itself (not to a comment). New files upload as soon as they're picked. */
+function ItemAttachments({ item }: { item: BacklogItem }) {
+  const qc = useQueryClient();
+  const { data } = useAttachments(item.id);
+  const own = (data ?? []).filter((a) => !a.commentId);
+  const staged = useStagedFiles({ uploadTo: item.id, draft: false, max: ATTACHMENT_MAX_PER_ITEM });
+  const drop = useFileDrop(staged.add);
+  const settled = staged.files.length > 0 && staged.files.every((f) => f.status === 'done');
+
+  // Once every picked file is uploaded, the list below shows them: clear the chips.
+  useEffect(() => {
+    if (!settled) return;
+    void qc.invalidateQueries({ queryKey: ['item-attachments', item.id] }).then(() => staged.reset());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settled]);
+
+  const remove = async (id: string) => {
+    try {
+      await api.deleteAttachment(id);
+      void qc.invalidateQueries({ queryKey: ['item-attachments', item.id] });
+    } catch (err) {
+      showError(err);
+    }
+  };
+
+  return (
+    <div {...drop.props} className={cn(drop.over && 'bg-accent/5')}>
+      <Section title={`Attachments${own.length ? ` · ${own.length}` : ''}`}>
+        <AttachmentList attachments={own} onDelete={(a) => void remove(a.id)} className={cn(own.length > 0 && 'mb-3')} />
+        <AttachmentPicker staged={staged} />
+      </Section>
+    </div>
   );
 }
 
@@ -593,6 +643,8 @@ function Overview({ item, onOpenDiscussion }: { item: BacklogItem; onOpenDiscuss
           <p className="text-sm text-faint">No description yet. Add one, or ask Claude to plan it.</p>
         )}
       </Section>
+
+      <ItemAttachments item={item} />
 
       {!editing && item.acceptanceCriteria.length > 0 && (
         <Section title="Acceptance criteria">

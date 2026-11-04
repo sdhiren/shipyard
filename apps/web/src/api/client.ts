@@ -2,6 +2,7 @@ import type {
   Activity,
   Analysis,
   AnalyzeInput,
+  Attachment,
   BacklogItem,
   ClaudeAuthStatus,
   ClaudeLoginSession,
@@ -43,6 +44,33 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     throw new ApiError(res.status, detail ? `${data.error}: ${detail}` : (data.error ?? res.statusText));
   }
   return data as T;
+}
+
+/**
+ * Uploads send the raw file body (name in X-Filename). XHR rather than fetch
+ * so the composer can show upload progress.
+ */
+function uploadAttachment(itemId: string, file: File, opts: { draft?: boolean; onProgress?: (fraction: number) => void } = {}): Promise<Attachment> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `/api/items/${itemId}/attachments${opts.draft ? '?draft=1' : ''}`);
+    xhr.setRequestHeader('X-Shipyard', '1');
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.setRequestHeader('X-Filename', encodeURIComponent(file.name));
+    xhr.upload.onprogress = (e) => e.lengthComputable && opts.onProgress?.(e.loaded / e.total);
+    xhr.onload = () => {
+      let data: { error?: string } = {};
+      try {
+        data = JSON.parse(xhr.responseText) as { error?: string };
+      } catch {
+        // Non-JSON error page: fall back to the status text.
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data as Attachment);
+      else reject(new ApiError(xhr.status, data.error ?? (xhr.statusText || 'Upload failed')));
+    };
+    xhr.onerror = () => reject(new ApiError(0, `Could not upload ${file.name}`));
+    xhr.send(file);
+  });
 }
 
 const get = <T>(url: string) => request<T>('GET', url);
@@ -108,7 +136,10 @@ export const api = {
   addNote: (id: string, body: string) => post<{ ok: true }>(`/items/${id}/notes`, { body }),
   itemActivity: (id: string) => get<Activity[]>(`/items/${id}/activity`),
   itemRuns: (id: string) => get<Run[]>(`/items/${id}/runs`),
-  revise: (id: string, feedback: string) => post<Run>(`/items/${id}/revise`, { feedback }),
+  revise: (id: string, feedback: string, attachmentIds: string[] = []) => post<Run>(`/items/${id}/revise`, { feedback, attachmentIds }),
+  attachments: (itemId: string) => get<Attachment[]>(`/items/${itemId}/attachments`),
+  uploadAttachment,
+  deleteAttachment: (id: string) => del<void>(`/attachments/${id}`),
   rebase: (id: string) => post<Run>(`/items/${id}/rebase`),
   comments: (id: string) => get<Comment[]>(`/items/${id}/comments`),
   postComment: (id: string, input: CreateCommentInput) => post<{ comment: Comment; run: Run | null }>(`/items/${id}/comments`, input),
