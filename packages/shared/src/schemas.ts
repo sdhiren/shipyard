@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   ANALYSIS_FOCUS,
+  ATTACHMENT_MAX_PER_MESSAGE,
   COMMENT_KINDS,
   AUTONOMY_LEVELS,
   EFFORTS,
@@ -154,7 +155,12 @@ export const noteSchema = z.object({ body: z.string().min(1).max(5000) });
 
 export const linkPrSchema = z.object({ prUrlOrNumber: z.string().min(1) });
 
-export const reviseSchema = z.object({ feedback: z.string().min(3).max(10_000) });
+/** Draft attachments (uploaded with `draft=1`) to link to the new message. */
+const attachmentIdsField = z.array(z.string()).max(ATTACHMENT_MAX_PER_MESSAGE).default([]);
+
+export const reviseSchema = z
+  .object({ feedback: z.string().trim().max(10_000).default(''), attachmentIds: attachmentIdsField })
+  .refine((r) => r.feedback.length >= 3 || r.attachmentIds.length > 0, { message: 'Describe the change or attach a file', path: ['feedback'] });
 
 // ---------------------------------------------------------------------------
 // Analysis (AI ideation)
@@ -218,12 +224,15 @@ export type PlanResult = z.infer<typeof planResultSchema>;
 export const COMMENT_INTENTS = ['comment', 'ask', 'change_request'] as const;
 export type CommentIntent = (typeof COMMENT_INTENTS)[number];
 
-export const createCommentSchema = z.object({
-  body: z.string().trim().min(1).max(20_000),
-  /** comment = just post · ask = Claude replies · change_request = Claude revises the branch */
-  intent: z.enum(COMMENT_INTENTS).default('ask'),
-  kind: z.enum(COMMENT_KINDS).default('comment'),
-});
+export const createCommentSchema = z
+  .object({
+    body: z.string().trim().max(20_000).default(''),
+    /** comment = just post · ask = Claude replies · change_request = Claude revises the branch */
+    intent: z.enum(COMMENT_INTENTS).default('ask'),
+    kind: z.enum(COMMENT_KINDS).default('comment'),
+    attachmentIds: attachmentIdsField,
+  })
+  .refine((c) => c.body.length > 0 || c.attachmentIds.length > 0, { message: 'Write a message or attach a file', path: ['body'] });
 export type CreateCommentInput = z.input<typeof createCommentSchema>;
 
 export const discussResultSchema = z.object({

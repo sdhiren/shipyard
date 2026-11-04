@@ -1,5 +1,5 @@
 import type { BacklogItem } from '@shipyard/shared';
-import { AlarmClock, GitBranch } from 'lucide-react';
+import { AlarmClock, GitBranch, Paperclip } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { cn, timeAgo } from '../lib/utils';
 import { EffortBadge, PrBadge, PriorityIcon, ScoreBadge, StatusDot, TypeIcon } from './domain';
@@ -39,6 +39,12 @@ export function ItemRow({
       <TypeIcon type={item.type} />
       <span className="min-w-0 flex-1 truncate text-fg">{item.title}</span>
       {meta}
+      {item.attachmentCount > 0 && (
+        <span className="inline-flex items-center gap-0.5 text-xs text-faint" title={`${item.attachmentCount} attachment${item.attachmentCount === 1 ? '' : 's'}`}>
+          <Paperclip className="size-3.5" />
+          {item.attachmentCount}
+        </span>
+      )}
       {snoozed && <AlarmClock className="size-3.5 text-amber-400" />}
       {item.branch && !item.pr && <GitBranch className="size-3.5 text-faint" />}
       {item.pr && <PrBadge pr={item.pr} compact />}

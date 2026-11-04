@@ -96,11 +96,11 @@ export async function itemRoutes(app: FastifyInstance): Promise<void> {
 
   app.post('/api/items/:id/revise', async (req, reply) => {
     const id = idParams.parse(req.params).id;
-    const { feedback } = reviseSchema.parse(req.body);
+    const { feedback, attachmentIds } = reviseSchema.parse(req.body);
     await assertSignedIn();
     if (isItemBusy(id)) throw conflict('Claude is already working on this item');
-    addComment({ itemId: id, author: 'user', kind: 'change_request', body: feedback });
-    return reply.code(202).send(startRevision(id, feedback));
+    const comment = addComment({ itemId: id, author: 'user', kind: 'change_request', body: feedback, attachmentIds });
+    return reply.code(202).send(startRevision(id, feedback, comment.id));
   });
 
   app.get('/api/items/:id/diff', async (req) => getItemDiff(idParams.parse(req.params).id));
@@ -126,8 +126,14 @@ export async function itemRoutes(app: FastifyInstance): Promise<void> {
     if (input.intent !== 'comment' && isItemBusy(id)) {
       throw conflict('Claude is already working on this item. Post it as a plain comment, or wait until it finishes.');
     }
-    const comment = addComment({ itemId: id, author: 'user', kind: input.intent === 'change_request' ? 'change_request' : input.kind, body: input.body });
-    const run = input.intent === 'ask' ? startDiscussion(id) : input.intent === 'change_request' ? startRevision(id, input.body) : null;
+    const comment = addComment({
+      itemId: id,
+      author: 'user',
+      kind: input.intent === 'change_request' ? 'change_request' : input.kind,
+      body: input.body,
+      attachmentIds: input.attachmentIds,
+    });
+    const run = input.intent === 'ask' ? startDiscussion(id) : input.intent === 'change_request' ? startRevision(id, input.body, comment.id) : null;
     return reply.code(201).send({ comment, run });
   });
 

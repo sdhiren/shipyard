@@ -16,6 +16,7 @@ import { items, projects, runs, type ItemRow } from '../db/schema.js';
 import { bus } from '../lib/events.js';
 import { badRequest, conflict, newId, notFound, now } from '../lib/util.js';
 import { logActivity } from './activity.js';
+import { attachmentCounts, removeItemAttachments } from './attachments.js';
 import { commentCounts } from './comments.js';
 import { toItem } from './mappers.js';
 
@@ -33,7 +34,7 @@ export function getItemRow(id: string): ItemRow {
 
 export function getItem(id: string): BacklogItem {
   const row = getItemRow(id);
-  return toItem(row, keyPrefix(row.projectId), commentCounts([id]).get(id) ?? 0);
+  return toItem(row, keyPrefix(row.projectId), commentCounts([id]).get(id) ?? 0, attachmentCounts([id]).get(id) ?? 0);
 }
 
 export function itemKey(row: ItemRow): string {
@@ -65,8 +66,10 @@ export function listItems(projectId: string, f: ItemFilters = {}): BacklogItem[]
     .all();
   const nowIso = now();
   const visible = rows.filter((r) => f.includeSnoozed || !r.snoozedUntil || r.snoozedUntil <= nowIso);
-  const counts = commentCounts(visible.map((r) => r.id));
-  return visible.map((r) => toItem(r, prefix, counts.get(r.id) ?? 0));
+  const ids = visible.map((r) => r.id);
+  const counts = commentCounts(ids);
+  const files = attachmentCounts(ids);
+  return visible.map((r) => toItem(r, prefix, counts.get(r.id) ?? 0, files.get(r.id) ?? 0));
 }
 
 /** Allocate the next per-project item number atomically. */
@@ -250,6 +253,7 @@ export function hardDelete(id: string): void {
   }
   if (hasActiveRun(id)) throw conflict('Cancel the active run first');
   db.delete(items).where(eq(items.id, id)).run();
+  removeItemAttachments(row.projectId, id);
   bus.publish({ type: 'items.changed', projectId: row.projectId });
 }
 

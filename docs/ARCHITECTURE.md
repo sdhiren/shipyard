@@ -28,6 +28,7 @@
 | `run_events` | The streamed transcript of a run, ordered by `seq` |
 | `activity` | The append-only timeline for projects and items |
 | `comments` | Each item's discussion thread: the owner's comments, answers and change requests, plus Claude's replies and plan posts |
+| `attachments` | Files attached to an item (`comment_id` null) or to one of its comments. Bytes live in `~/.shipyard/attachments/<project>/<item>/<attachment>/<name>`; `draft` marks composer uploads not yet posted (pruned after 24h on boot) |
 | `settings` | Global settings (concurrency, PR poll interval, defaults, discovery roots) |
 
 Migrations live in `apps/server/drizzle` and run on boot. Run `npm run db:generate` after changing `schema.ts`.
@@ -39,7 +40,7 @@ Migrations live in `apps/server/drizzle` and run on boot. Run `npm run db:genera
 ```
 claude -p --output-format stream-json --verbose --model <m> --effort <e>
        [--json-schema <schema>] [--max-budget-usd N] [--resume <session>]
-       <permission flags> --disallowedTools … Bash(git push*) Bash(gh *)
+       [--add-dir <item attachments dir>] <permission flags> --disallowedTools … Bash(git push*) Bash(gh *)
 ```
 
 The prompt goes in on stdin. Each NDJSON line is turned into a `RunEvent`: `system`, `text`, `tool_use`, `tool_result`, `step`, `result` or `stderr`. Events are stored in `run_events` and broadcast over SSE. The final `result` message supplies `session_id`, `total_cost_usd`, `num_turns` and, for schema runs, `structured_output`. That output is validated against the Zod schemas in `packages/shared/src/schemas.ts` before anything is written.
@@ -52,6 +53,14 @@ The prompt goes in on stdin. Each NDJSON line is turned into a `RunEvent`: `syst
 | implement | `~/.shipyard/worktrees/<project>/<key>` | `acceptEdits` + project allow-list (guarded) or skip-permissions (full) | commits on the branch |
 | revise | same worktree, `--resume <session>` | same as implement | more commits, pushed to the PR |
 | rebase | same worktree; Claude only on conflicts | same as implement plus `git rebase --continue` and the like | rebased branch, force-pushed with lease |
+
+### Attachments
+
+Plan, discuss, implement and revise runs on an item with attachments pass the item's attachments folder with `--add-dir`, and `attachmentsForPrompt` lists every file in the prompt: absolute path, MIME type, size, and whether it came with the item or with a comment (the thread also lists each message's files). Claude opens them with its `Read` tool, which handles images, PDFs (in page ranges past 10 pages) and text. `isClaudeReadable` decides which files get marked "format not readable by you" (Office documents, archives…); it trusts the extension over the MIME type, since browsers often send none for `.md`. There's no format conversion.
+
+Attachments are reference-only: every prompt that lists them tells Claude never to copy, move or commit them into the repo or worktree, and to say in its reply or PR description when the owner must add an asset by hand. Implement and revise runs can write files, so this rule is enforced by the prompt, not technically.
+
+Composer uploads go up as drafts (`?draft=1`) before the comment exists, because posting may start a run straight away. `POST /comments` then links the `attachmentIds` to the new comment in the same transaction as the insert.
 
 ### Branch base
 
@@ -106,5 +115,7 @@ The server has an in-process `bus`. Services publish `LiveEvent`s such as `item.
 
 - The server binds to `127.0.0.1` by default.
 - Non-GET `/api/*` requests require `X-Shipyard: 1`. Browsers can't add that header cross-origin without a CORS preflight, and CORS only allows localhost origins.
+- Uploads (`POST /api/items/:id/attachments`, raw body, max 20 MB, 413 beyond) need `X-Shipyard` like every other write. Filenames are reduced to a single safe path segment, and every file path is checked to stay inside `~/.shipyard/attachments`.
+- `GET /api/attachments/:id` serves raster images and PDFs inline and everything else, SVG and HTML included, as a download, always with `X-Content-Type-Options: nosniff` and a `sandbox` CSP. An uploaded file can't run script on the API origin.
 - No secrets are stored. Claude and GitHub auth belong to their CLIs.
 - Commands are spawned without a shell, as an argv array, so item titles and paths can never be interpolated into a command line.

@@ -21,6 +21,7 @@ import { badRequest, conflict, HttpError, newId, notFound, now, slugify } from '
 import { logActivity } from './activity.js';
 import { runClaude, type ClaudeRunOptions } from './claude/runner.js';
 import { analysisPrompt, discussPrompt, implementPrompt, planPrompt, prBody, rebasePrompt, revisePrompt } from './claude/prompts.js';
+import { attachmentsForPrompt } from './attachments.js';
 import { addComment, threadForPrompt } from './comments.js';
 import * as git from './git.js';
 import * as gh from './github.js';
@@ -34,6 +35,9 @@ function cliSchema(schema: z.ZodType): object {
   const { $schema: _meta, ...rest } = z.toJSONSchema(schema) as Record<string, unknown>;
   return rest;
 }
+
+/** The item's attachments folder, readable by Claude outside the cwd. */
+const addDirs = (dir: string | null) => (dir ? [dir] : undefined);
 
 /** Adapter: run Claude with the project's model settings and stream into the run log. */
 async function claude(ctx: RunContext, project: ProjectRow, opts: Omit<ClaudeRunOptions, 'model' | 'effort' | 'onEvent' | 'signal'>) {
@@ -254,13 +258,14 @@ export function startPlan(itemId: string): Run {
   assertIdle(itemId);
   const project = getRunnableProject(item.projectId);
   const cwd = item.worktreePath ?? project.path;
-  const prompt = planPrompt(project, item, threadForPrompt(itemId));
+  const files = attachmentsForPrompt(itemId);
+  const prompt = planPrompt(project, item, threadForPrompt(itemId), files.block);
   const run = createRun({ projectId: project.id, itemId, kind: 'plan', model: project.settings.model, prompt, cwd });
   patchItem(itemId, { lastRunId: run.id });
   logActivity({ projectId: project.id, itemId, kind: 'run_started', message: 'Planning started', meta: { runId: run.id } });
 
   enqueue(run.id, async (ctx) => {
-    const result = await claude(ctx, project, { prompt, cwd, mode: 'readonly', jsonSchema: cliSchema(planResultSchema), persistSession: false });
+    const result = await claude(ctx, project, { prompt, cwd, mode: 'readonly', jsonSchema: cliSchema(planResultSchema), persistSession: false, addDirs: addDirs(files.dir) });
     addItemCost(itemId, result.costUsd);
     if (!result.ok) return { status: 'failed', error: result.error };
     const parsed = planResultSchema.safeParse(result.structuredOutput);
@@ -284,12 +289,13 @@ export function startDiscussion(itemId: string): Run {
   const project = getRunnableProject(item.projectId);
   const key = itemKey(item);
   const cwd = item.worktreePath ?? project.path;
-  const prompt = discussPrompt(project, item, key, threadForPrompt(itemId));
+  const files = attachmentsForPrompt(itemId);
+  const prompt = discussPrompt(project, item, key, threadForPrompt(itemId), files.block);
   const run = createRun({ projectId: project.id, itemId, kind: 'discuss', model: project.settings.model, prompt, cwd });
   patchItem(itemId, { lastRunId: run.id });
 
   enqueue(run.id, async (ctx) => {
-    const result = await claude(ctx, project, { prompt, cwd, mode: 'readonly', jsonSchema: cliSchema(discussResultSchema), persistSession: false });
+    const result = await claude(ctx, project, { prompt, cwd, mode: 'readonly', jsonSchema: cliSchema(discussResultSchema), persistSession: false, addDirs: addDirs(files.dir) });
     addItemCost(itemId, result.costUsd);
     if (!result.ok) return { status: 'failed', error: result.error };
     const parsed = discussResultSchema.safeParse(result.structuredOutput);
@@ -343,10 +349,12 @@ export function startImplementation(itemId: string): Run {
     ctx.emit('step', git.describeWorktree(wt, branch));
 
     const fresh = getItemRow(itemId);
-    const prompt = implementPrompt(project, fresh, key, threadForPrompt(itemId));
+    const files = attachmentsForPrompt(itemId);
+    const prompt = implementPrompt(project, fresh, key, threadForPrompt(itemId), files.block);
     ctx.update({ prompt });
     const result = await claude(ctx, project, {
       prompt,
+      addDirs: addDirs(files.dir),
       cwd: worktreePath,
       mode: project.settings.autonomy === 'full' ? 'full' : 'guarded',
       allowedTools: project.settings.allowedTools,
@@ -427,14 +435,16 @@ async function finishDelivery(
   return { status: 'succeeded', summary: summary.slice(0, 2000) };
 }
 
-export function startRevision(itemId: string, feedback: string): Run {
+export function startRevision(itemId: string, feedback: string, commentId?: string): Run {
   const item = getItemRow(itemId);
   assertIdle(itemId);
   if (!item.worktreePath || !item.branch) throw conflict('This item has no workspace yet; implement it first');
   const project = getRunnableProject(item.projectId);
   const key = itemKey(item);
   const baseBranch = project.git.defaultBranch ?? 'main';
-  const prompt = revisePrompt(project, item, key, feedback);
+  const all = attachmentsForPrompt(itemId);
+  const files = commentId ? attachmentsForPrompt(itemId, { commentId }) : { block: '' };
+  const prompt = revisePrompt(project, item, key, feedback, files.block, all.dir);
   const run = createRun({ projectId: project.id, itemId, kind: 'revise', model: project.settings.model, prompt, cwd: item.worktreePath, branch: item.branch });
   patchItem(itemId, { status: 'in_progress', lastRunId: run.id }, 'changes requested');
 
@@ -448,7 +458,8 @@ export function startRevision(itemId: string, feedback: string): Run {
     }
     const result = await claude(ctx, project, {
       // Resuming keeps Claude's memory of the first implementation; fall back to the full brief.
-      prompt: item.sessionId ? prompt : `${implementPrompt(project, item, key)}\n\n---\n\n${prompt}`,
+      prompt: item.sessionId ? prompt : `${implementPrompt(project, item, key, '', all.block)}\n\n---\n\n${prompt}`,
+      addDirs: addDirs(all.dir),
       cwd: item.worktreePath!,
       mode: project.settings.autonomy === 'full' ? 'full' : 'guarded',
       allowedTools: project.settings.allowedTools,

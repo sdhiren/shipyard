@@ -27,6 +27,8 @@ export interface ClaudeRunOptions {
   resumeSessionId?: string | null;
   appendSystemPrompt?: string;
   persistSession?: boolean;
+  /** Extra folders the CLI may read outside the cwd, e.g. the item's attachments. */
+  addDirs?: string[];
   signal?: AbortSignal;
   onEvent: (event: { type: RunEventType; text: string; data?: unknown }) => void;
 }
@@ -85,6 +87,7 @@ export function buildArgs(opts: ClaudeRunOptions): string[] {
   if (opts.resumeSessionId) args.push('--resume', opts.resumeSessionId);
   if (opts.appendSystemPrompt) args.push('--append-system-prompt', opts.appendSystemPrompt);
   if (opts.persistSession === false) args.push('--no-session-persistence');
+  for (const dir of opts.addDirs ?? []) args.push('--add-dir', dir);
 
   const disallowed = [...ALWAYS_DISALLOWED];
   if (opts.mode === 'readonly') {

@@ -99,6 +99,7 @@ export interface BacklogItem {
   /** Questions from the latest plan that still need the owner's input. */
   openQuestions: string[];
   commentCount: number;
+  attachmentCount: number;
   position: number;
   snoozedUntil: string | null;
   dueDate: string | null;
@@ -181,6 +182,21 @@ export interface Comment {
   /** Claude's reply changed the plan. */
   planUpdated: boolean;
   runId: string | null;
+  attachments: Attachment[];
+  createdAt: string;
+}
+
+/** A file the owner attached to an item (commentId null) or to one of their comments. */
+export interface Attachment {
+  id: string;
+  itemId: string;
+  commentId: string | null;
+  filename: string;
+  mimeType: string;
+  size: number;
+  /** Shown inline as a thumbnail; everything else is a download link. */
+  isImage: boolean;
+  url: string;
   createdAt: string;
 }
 
