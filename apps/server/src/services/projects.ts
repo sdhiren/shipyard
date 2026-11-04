@@ -153,6 +153,9 @@ export function updateProject(id: string, input: UpdateProjectInput): Project {
 /** Re-detect stack and git state (cheap; no AI). */
 export async function rescanProject(id: string): Promise<Project> {
   const row = getProjectRow(id);
+  // Scanning a missing folder would erase the git remote that relocation uses to find the repo.
+  const stat = await fs.stat(row.path).catch(() => null);
+  if (!stat?.isDirectory()) throw conflict(`The folder for ${row.name} was not found at ${row.path}. Update the project's location first.`);
   const [stack, git] = await Promise.all([detectStack(row.path), getGitInfo(row.path)]);
   db.update(projects).set({ stack, git, lastScannedAt: now(), updatedAt: now() }).where(eq(projects.id, id)).run();
   bus.publish({ type: 'project.changed', projectId: id });

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { EFFORT_POINTS, type Activity, type Analysis, type BacklogItem, type Project, type Run } from '@shipyard/shared';
 import type { ActivityRow, AnalysisRow, ItemRow, ProjectRow, RunRow } from '../db/schema.js';
 
@@ -9,6 +10,7 @@ export function toProject(row: ProjectRow): Project {
     name: row.name,
     slug: row.slug,
     path: row.path,
+    folderMissing: !fs.existsSync(row.path),
     description: row.description,
     color: row.color,
     pinned: row.pinned,

@@ -46,6 +46,8 @@ export interface Project {
   name: string;
   slug: string;
   path: string;
+  /** The folder at `path` no longer exists (e.g. the repo was moved). */
+  folderMissing: boolean;
   description: string;
   color: string;
   pinned: boolean;
@@ -261,6 +263,19 @@ export interface DiscoveredRepo {
   name: string;
   remoteUrl: string | null;
   alreadyAdded: boolean;
+}
+
+/** A folder that looks like a moved project: a git repo with the same remote. */
+export interface RelocationCandidate {
+  path: string;
+  remoteUrl: string | null;
+  branch: string | null;
+  lastCommitAt: string | null;
+  lastCommitMessage: string | null;
+  commitCount: number;
+  uncommittedFiles: number;
+  /** Same folder name as the old location. */
+  sameName: boolean;
 }
 
 /** What `claude auth status` reports. `loggedIn` is null when it couldn't be determined. */

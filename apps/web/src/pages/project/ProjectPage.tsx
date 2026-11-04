@@ -1,4 +1,4 @@
-import { Archive, ArchiveRestore, Ellipsis, FolderX, Trash2, ExternalLink, Gauge, Import, Inbox, Kanban, List, Pin, Plus, RefreshCw, Search, Settings, Sparkles } from 'lucide-react';
+import { Archive, ArchiveRestore, Ellipsis, FolderSearch, FolderX, Trash2, ExternalLink, Gauge, Import, Inbox, Kanban, List, Pin, Plus, RefreshCw, Search, Settings, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
@@ -7,6 +7,7 @@ import { ProjectDot } from '../../components/domain';
 import { AnalyzeDialog } from '../../components/dialogs/AnalyzeDialog';
 import { ImportDialog } from '../../components/dialogs/ImportDialog';
 import { RemoveProjectDialog, useArchiveProject, useRestoreProject } from '../../components/dialogs/ProjectLifecycle';
+import { RelocateProjectDialog } from '../../components/dialogs/RelocateProjectDialog';
 import { InboxList } from '../../components/InboxList';
 import { useUi } from '../../lib/ui-context';
 import { Badge, Button, EmptyState, Input, Menu, Spinner, Tabs } from '../../components/ui';
@@ -34,6 +35,7 @@ export function ProjectPage() {
   const [analyze, setAnalyze] = useState(false);
   const [importing, setImporting] = useState(false);
   const [removing, setRemoving] = useState(false);
+  const [relocating, setRelocating] = useState(false);
   const archive = useArchiveProject();
   const restore = useRestoreProject();
   const ui = useUi();
@@ -63,6 +65,18 @@ export function ProjectPage() {
 
   return (
     <div className="flex h-full flex-col">
+      {project.folderMissing && (
+        <div className="flex items-center gap-3 border-b border-rose-500/20 bg-rose-500/5 px-6 py-2.5 text-sm text-rose-400">
+          <FolderX className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1">
+            <span className="font-medium">Shipyard can't find this project's folder.</span> Nothing at{' '}
+            <code className="font-mono text-xs break-all">{project.path}</code>. Moved it? Point Shipyard at the new location so Claude can work here again.
+          </span>
+          <Button size="sm" variant="primary" icon={<FolderSearch className="size-3.5" />} onClick={() => setRelocating(true)}>
+            Find it
+          </Button>
+        </div>
+      )}
       {project.archived && (
         <div className="flex items-center gap-3 border-b border-amber-500/20 bg-amber-500/5 px-6 py-2 text-sm text-amber-400">
           <Archive className="size-4" />
@@ -165,6 +179,7 @@ export function ProjectPage() {
       <AnalyzeDialog open={analyze} onClose={() => setAnalyze(false)} project={project} />
       <ImportDialog open={importing} onClose={() => setImporting(false)} projectId={project.id} />
       <RemoveProjectDialog project={project} open={removing} onClose={() => setRemoving(false)} />
+      <RelocateProjectDialog project={project} open={relocating} onClose={() => setRelocating(false)} />
     </div>
   );
 }
