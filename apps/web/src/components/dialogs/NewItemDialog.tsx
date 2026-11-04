@@ -1,8 +1,10 @@
-import { EFFORTS, ITEM_TYPES, PRIORITIES, PRIORITY_LABELS, TYPE_LABELS, type Effort, type ItemStatus, type ItemType, type Priority } from '@shipyard/shared';
+import { ATTACHMENT_MAX_PER_ITEM, EFFORTS, ITEM_TYPES, PRIORITIES, PRIORITY_LABELS, TYPE_LABELS, type Effort, type ItemStatus, type ItemType, type Priority } from '@shipyard/shared';
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { api } from '../../api/client';
 import { useAction, useProjects } from '../../api/hooks';
+import { cn } from '../../lib/utils';
+import { AttachmentPicker, pasteFiles, useFileDrop, useStagedFiles } from '../Attachments';
 import { Button, Dialog, Field, Input, Select, Textarea } from '../ui';
 
 /** Manually add a backlog item. Opens with "c" anywhere in the app. */
@@ -28,6 +30,9 @@ export function NewItemDialog({
   const [criteria, setCriteria] = useState('');
   const [tags, setTags] = useState('');
   const [another, setAnother] = useState(false);
+  const staged = useStagedFiles({ max: ATTACHMENT_MAX_PER_ITEM });
+  const drop = useFileDrop(staged.add);
+  const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
     if (open) setProjectId(initialProjectId ?? projects?.[0]?.id ?? '');
@@ -62,11 +67,22 @@ export function NewItemDialog({
     {},
   );
 
+  // Files are staged in the browser and uploaded once the item exists.
   const submit = () =>
     create.mutate(undefined, {
-      onSuccess: (item) => {
-        toast.success(`Created ${item.key}`, { description: item.title });
+      onSuccess: async (item) => {
+        const count = staged.files.length;
+        if (count) {
+          setUploading(true);
+          const failed = await staged.uploadAll(item.id);
+          setUploading(false);
+          if (failed) toast.error(`Created ${item.key}, but ${failed} of ${count} attachment${count === 1 ? '' : 's'} failed`, { description: 'Add them again from the item.' });
+          else toast.success(`Created ${item.key} with ${count} attachment${count === 1 ? '' : 's'}`, { description: item.title });
+        } else {
+          toast.success(`Created ${item.key}`, { description: item.title });
+        }
         reset();
+        staged.reset();
         if (!another) onClose();
       },
     });
@@ -85,16 +101,17 @@ export function NewItemDialog({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button variant="primary" disabled={title.trim().length < 3 || !projectId} loading={create.isPending} onClick={submit}>
+          <Button variant="primary" disabled={title.trim().length < 3 || !projectId} loading={create.isPending || uploading} onClick={submit}>
             Create item
           </Button>
         </>
       }
     >
       <div
-        className="space-y-4"
+        {...drop.props}
+        className={cn('space-y-4 rounded-lg', drop.over && 'ring-2 ring-accent/40 ring-offset-4 ring-offset-panel')}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && title.trim().length >= 3) submit();
+          if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && title.trim().length >= 3 && !create.isPending && !uploading) submit();
         }}
       >
         {!initialProjectId && (
@@ -109,7 +126,14 @@ export function NewItemDialog({
           </Field>
         )}
         <Input autoFocus placeholder="Title, e.g. “Add a weekly digest email”" className="h-10 text-base" value={title} onChange={(e) => setTitle(e.target.value)} />
-        <Textarea placeholder="Describe the problem and the idea (Markdown)…" className="min-h-32" value={description} onChange={(e) => setDescription(e.target.value)} />
+        <Textarea
+          placeholder="Describe the problem and the idea (Markdown). Drop or paste screenshots and files here…"
+          className="min-h-32"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          onPaste={pasteFiles(staged.add)}
+        />
+        <AttachmentPicker staged={staged} />
         <div className="grid grid-cols-4 gap-3">
           <Field label="Type">
             <Select value={type} onChange={(e) => setType(e.target.value as ItemType)}>

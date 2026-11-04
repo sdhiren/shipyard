@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import { ZodError } from 'zod';
 import { config } from './config.js';
 import { HttpError } from './lib/util.js';
+import { attachmentRoutes } from './routes/attachments.js';
 import { itemRoutes } from './routes/items.js';
 import { projectRoutes } from './routes/projects.js';
 import { systemRoutes } from './routes/system.js';
@@ -46,6 +47,7 @@ export async function buildApp(opts: { logger?: boolean } = {}): Promise<Fastify
   await app.register(systemRoutes);
   await app.register(projectRoutes);
   await app.register(itemRoutes);
+  await app.register(attachmentRoutes);
 
   // In production the API also serves the built web app.
   if (fs.existsSync(config.webDist)) {

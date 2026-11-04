@@ -17,6 +17,8 @@ export const config = {
   dbPath: path.join(dataDir, 'shipyard.db'),
   /** Git worktrees for implementation runs live here, never inside the user's checkout. */
   worktreesDir: path.join(dataDir, 'worktrees'),
+  /** Uploaded attachments, also kept out of the user's checkout and worktrees. */
+  attachmentsDir: path.join(dataDir, 'attachments'),
   claudeBin: process.env.SHIPYARD_CLAUDE_BIN ?? 'claude',
   ghBin: process.env.SHIPYARD_GH_BIN ?? 'gh',
   /** Built web app, served in production mode. */

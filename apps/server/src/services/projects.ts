@@ -19,6 +19,7 @@ import { badRequest, conflict, keyPrefixFor, newId, notFound, now, pickColor, sl
 import { createItem } from './items.js';
 import { pumpQueue } from './runs.js';
 import { getGitInfo, removeWorktree } from './git.js';
+import { removeProjectAttachments } from './attachments.js';
 import { listOpenIssues } from './github.js';
 import { toProject } from './mappers.js';
 import { discoverRepos, detectStack, scanBacklogFiles, scanTodoComments, suggestAllowedTools, suggestTestCommand, type RawImport } from './scanner.js';
@@ -186,6 +187,7 @@ export async function deleteProject(id: string): Promise<void> {
   }
 
   db.delete(projects).where(eq(projects.id, id)).run();
+  removeProjectAttachments(id);
   bus.publish({ type: 'project.changed', projectId: id });
 }
 

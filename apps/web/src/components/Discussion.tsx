@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { api } from '../api/client';
 import { isSignInError, openClaudeSignIn, showError, useItemComments, useItemRuns } from '../api/hooks';
 import { cn, timeAgo } from '../lib/utils';
+import { AttachmentList, AttachmentPicker, pasteFiles, useFileDrop, useStagedFiles } from './Attachments';
 import { Md } from './domain';
 import { Badge, Button, Spinner, Textarea } from './ui';
 
@@ -69,10 +70,10 @@ function useFailedReply(runs: Run[] | undefined, comments: Comment[] | undefined
 function usePost(itemId: string) {
   const qc = useQueryClient();
   const [pending, setPending] = useState(false);
-  const send = async (body: string, intent: CommentIntent, kind: CommentKind = 'comment') => {
+  const send = async (body: string, intent: CommentIntent, kind: CommentKind = 'comment', attachmentIds: string[] = []) => {
     setPending(true);
     try {
-      await api.postComment(itemId, { body, intent, kind });
+      await api.postComment(itemId, { body, intent, kind, attachmentIds });
       for (const key of [['item-comments', itemId], ['item-runs', itemId], ['item', itemId]]) void qc.invalidateQueries({ queryKey: key });
       if (intent === 'change_request') toast.success('Claude is revising the branch');
       return true;
@@ -93,6 +94,8 @@ function usePost(itemId: string) {
 function OpenQuestionsForm({ item, busy }: { item: BacklogItem; busy: boolean }) {
   const [answers, setAnswers] = useState<string[]>(() => item.openQuestions.map(() => ''));
   const { send, pending } = usePost(item.id);
+  const staged = useStagedFiles({ uploadTo: item.id });
+  const drop = useFileDrop(staged.add);
   useEffect(() => setAnswers(item.openQuestions.map(() => '')), [item.openQuestions]);
   const answered = answers.filter((a) => a.trim()).length;
 
@@ -104,11 +107,14 @@ function OpenQuestionsForm({ item, busy }: { item: BacklogItem; busy: boolean })
         return `${i + 1}. *${q}*\n\n   ${a ? a.replace(/\n/g, '\n   ') : '_No answer yet: use your judgement._'}`;
       }),
     ].join('\n\n');
-    if (await send(body, 'ask', 'answers')) setAnswers(item.openQuestions.map(() => ''));
+    if (await send(body, 'ask', 'answers', staged.ids)) {
+      setAnswers(item.openQuestions.map(() => ''));
+      staged.reset();
+    }
   };
 
   return (
-    <section className="overflow-hidden rounded-xl border border-violet-500/30 bg-violet-500/[0.04]">
+    <section {...drop.props} className={cn('overflow-hidden rounded-xl border border-violet-500/30 bg-violet-500/[0.04]', drop.over && 'ring-2 ring-accent/40')}>
       <div className="flex items-center gap-2 border-b border-violet-500/20 px-4 py-2.5 text-sm font-medium text-violet-300">
         <ListChecks className="size-4" />
         Claude needs your input on {item.openQuestions.length} question{item.openQuestions.length === 1 ? '' : 's'} before implementing
@@ -125,16 +131,25 @@ function OpenQuestionsForm({ item, busy }: { item: BacklogItem; busy: boolean })
               placeholder="Your answer (optional; Claude uses its judgement for anything left blank)"
               value={answers[i] ?? ''}
               onChange={(e) => setAnswers((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))}
+              onPaste={pasteFiles(staged.add)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && answered) void submit();
+                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && answered && !staged.uploading) void submit();
               }}
             />
           </li>
         ))}
       </ol>
+      <AttachmentPicker staged={staged} hint={false} className="px-4 pb-3" />
       <div className="flex items-center justify-between gap-3 border-t border-violet-500/20 px-4 py-2.5">
         <span className="text-xs text-faint">Claude replies here and updates the plan with your answers.</span>
-        <Button size="sm" variant="primary" icon={<Send className="size-3.5" />} disabled={!answered || busy} loading={pending} onClick={() => void submit()}>
+        <Button
+          size="sm"
+          variant="primary"
+          icon={<Send className="size-3.5" />}
+          disabled={(!answered && !staged.ids.length) || busy || staged.uploading}
+          loading={pending}
+          onClick={() => void submit()}
+        >
           Send {answered ? `${answered} answer${answered === 1 ? '' : 's'}` : 'answers'}
         </Button>
       </div>
@@ -162,6 +177,14 @@ function CommentEntry({ comment: c, onShowPlan }: { comment: Comment; onShowPlan
       void qc.invalidateQueries({ queryKey: ['item-comments', c.itemId] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : String(err));
+    }
+  };
+  const removeAttachment = async (id: string) => {
+    try {
+      await api.deleteAttachment(id);
+      void qc.invalidateQueries({ queryKey: ['item-comments', c.itemId] });
+    } catch (err) {
+      showError(err);
     }
   };
 
@@ -198,9 +221,12 @@ function CommentEntry({ comment: c, onShowPlan }: { comment: Comment; onShowPlan
             </button>
           )}
         </div>
-        <div className={cn('mt-1.5 rounded-xl border px-3.5 py-2.5', isClaude ? 'border-line bg-panel' : 'border-line bg-bg')}>
-          <Md className="prose-p:my-1.5">{c.body}</Md>
-        </div>
+        {c.body && (
+          <div className={cn('mt-1.5 rounded-xl border px-3.5 py-2.5', isClaude ? 'border-line bg-panel' : 'border-line bg-bg')}>
+            <Md className="prose-p:my-1.5">{c.body}</Md>
+          </div>
+        )}
+        <AttachmentList attachments={c.attachments} onDelete={isClaude ? undefined : (a) => void removeAttachment(a.id)} className="mt-2" />
       </div>
     </li>
   );
@@ -275,16 +301,24 @@ function FailedReply({ itemId, run, onShowLog }: { itemId: string; run: Run; onS
 function Composer({ item, busy }: { item: BacklogItem; busy: boolean }) {
   const [body, setBody] = useState('');
   const { send, pending } = usePost(item.id);
+  const staged = useStagedFiles({ uploadTo: item.id });
+  const drop = useFileDrop(staged.add);
   const canRevise = item.status === 'in_review' && !!item.branch;
-  const empty = !body.trim();
+  // A message may be attachments alone, but never while uploads are still running.
+  const empty = (!body.trim() && !staged.ids.length) || staged.uploading;
   const post = async (intent: CommentIntent) => {
     if (empty) return;
-    if (await send(body, intent)) setBody('');
+    if (await send(body, intent, 'comment', staged.ids)) {
+      setBody('');
+      staged.reset();
+    }
   };
 
   return (
-    <div className="sticky bottom-0 border-t border-line bg-panel/95 px-5 py-3 backdrop-blur">
+    <div {...drop.props} className={cn('sticky bottom-0 border-t border-line bg-panel/95 px-5 py-3 backdrop-blur', drop.over && 'ring-2 ring-accent/40 ring-inset')}>
+      <AttachmentPicker staged={staged} className="mb-2" />
       <Textarea
+        onPaste={pasteFiles(staged.add)}
         className="min-h-20"
         placeholder={canRevise ? 'Ask Claude about the change, request edits to the branch, or leave a note…' : 'Ask Claude about the approach, answer a question, add context, or leave a note…'}
         value={body}
@@ -298,7 +332,11 @@ function Composer({ item, busy }: { item: BacklogItem; busy: boolean }) {
       />
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <span className="mr-auto text-xs text-faint">
-          {busy ? 'Claude is busy with this item. You can still leave a comment.' : 'Claude reads the code and this thread, and updates the plan if your reply changes it.'}
+          {staged.uploading
+            ? 'Uploading attachments…'
+            : busy
+              ? 'Claude is busy with this item. You can still leave a comment.'
+              : 'Claude reads the code and this thread, and updates the plan if your reply changes it.'}
         </span>
         <Button size="sm" variant="ghost" disabled={empty} loading={pending} onClick={() => void post('comment')} title="Post without asking Claude">
           Comment

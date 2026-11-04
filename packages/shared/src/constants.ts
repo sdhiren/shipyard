@@ -140,3 +140,18 @@ export type CommentKind = (typeof COMMENT_KINDS)[number];
  * looks for it to offer a "Sign in to Claude" button next to the error.
  */
 export const CLAUDE_SIGNIN_ERROR = 'Claude Code is not signed in';
+
+// ---------------------------------------------------------------------------
+// Attachments
+// ---------------------------------------------------------------------------
+
+export const ATTACHMENT_MAX_BYTES = 20 * 1024 * 1024;
+export const ATTACHMENT_MAX_PER_ITEM = 50;
+export const ATTACHMENT_MAX_PER_MESSAGE = 10;
+/**
+ * Served inline by the API. Everything else (SVG and HTML included) is sent as
+ * a download, so an uploaded file can never run script on the API's origin.
+ */
+export const INLINE_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+export const CLAUDE_READABLE_HINT =
+  "Claude can read screenshots/images, PDFs and text files like Markdown or code. Other formats are stored for you, but Claude can't open them.";

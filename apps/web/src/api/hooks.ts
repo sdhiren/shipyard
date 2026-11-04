@@ -35,7 +35,9 @@ export const useItemActivity = (id: string | undefined | null) =>
   useQuery({ queryKey: ['item-activity', id], queryFn: () => api.itemActivity(id!), enabled: !!id });
 export const useItemComments = (id: string | undefined | null) =>
   useQuery({ queryKey: ['item-comments', id], queryFn: () => api.comments(id!), enabled: !!id });
-export const useItemRuns = (id: string | undefined | null) => useQuery({ queryKey: ['item-runs', id], queryFn: () => api.itemRuns(id!), enabled: !!id });
+export const useAttachments = (id: string | undefined | null) =>
+  useQuery({ queryKey: ['item-attachments', id], queryFn: () => api.attachments(id!), enabled: !!id });
+export const useItemRuns =(id: string | undefined | null) => useQuery({ queryKey: ['item-runs', id], queryFn: () => api.itemRuns(id!), enabled: !!id });
 export const useAnalyses = (projectId: string | undefined) =>
   useQuery({ queryKey: ['analyses', projectId], queryFn: () => api.analyses(projectId!), enabled: !!projectId });
 export const useProjectActivity = (projectId: string | undefined) =>

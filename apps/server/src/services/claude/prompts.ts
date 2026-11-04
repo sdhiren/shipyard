@@ -70,7 +70,23 @@ function discussionBlock(discussion: string): string {
   return discussion ? `\n### Discussion with the owner (oldest first)\nDecisions and answers here override the plan where they differ.\n\n${discussion}\n` : '';
 }
 
-export function planPrompt(project: ProjectRow, item: ItemRow, discussion = ''): string {
+/**
+ * The owner's attachments: where they are and how to treat them. `files` is
+ * the list from `attachmentsForPrompt`; empty means no section at all.
+ */
+export function attachmentsBlock(files: string, heading = 'Attachments from the owner'): string {
+  if (!files) return '';
+  return `
+### ${heading}
+The owner attached these files. Open them with the Read tool before planning or answering, and use what they show: Read shows you images and screenshots directly, reads PDFs (for PDFs longer than 10 pages, read them in page ranges with the \`pages\` parameter), and reads text files such as Markdown, code, CSV and logs. For files marked "format not readable by you" (e.g. Word, Excel, PowerPoint, archives), say you can't read that format instead of guessing at its contents.
+
+These files are reference material only and live outside the repository: never copy, move or commit them into the repo or worktree. If the change genuinely needs one of them as an asset (e.g. a logo or icon), implement everything else and state clearly in your reply or PR description that the owner must add that file by hand.
+
+${files}
+`;
+}
+
+export function planPrompt(project: ProjectRow, item: ItemRow, discussion = '', attachments = ''): string {
   return `You are planning the implementation of one backlog item for the project in the current directory. Explore the code as needed, then write a plan another engineer (or Claude) can follow to deliver it as a single pull request.
 
 ${projectContext(project)}
@@ -81,14 +97,14 @@ Type: ${item.type} · Priority: ${item.priority}${item.effort ? ` · Estimated e
 ${item.description || '(no description)'}
 ${item.acceptanceCriteria.length ? `\nAcceptance criteria so far:\n${item.acceptanceCriteria.map((c) => `- ${c}`).join('\n')}` : ''}
 ${planState(item)}
-${discussionBlock(discussion)}
+${discussionBlock(discussion)}${attachmentsBlock(attachments)}
 
 The plan should cover the approach, the ordered steps with the files to touch, how it will be tested${project.settings.testCommand ? ` (the project's check command is \`${project.settings.testCommand}\`)` : ''}, and risks or migration concerns. Refine the acceptance criteria and re-estimate effort. List open questions only when an answer would change the design, and don't ask again about anything the discussion already settled. Keep open questions out of the plan text; return them in openQuestions.
 
 This is a read-only planning step. Do not modify any files. Return your answer in the required JSON format.`;
 }
 
-export function discussPrompt(project: ProjectRow, item: ItemRow, key: string, discussion: string): string {
+export function discussPrompt(project: ProjectRow, item: ItemRow, key: string, discussion: string, attachments = ''): string {
   return `You planned backlog item ${key} for the owner of the project in the current directory, and they've replied in the item's discussion thread. Reply to their latest message the way a thoughtful colleague would: answer questions directly, give your recommendation when they ask for one, and say plainly when you need a decision from them. Explore the code when it helps you give a grounded answer.
 
 ${projectContext(project)}
@@ -102,7 +118,7 @@ ${planState(item) || '\n(There is no plan yet.)'}
 
 ### Discussion (oldest first; the last message is the one to reply to)
 ${discussion}
-
+${attachmentsBlock(attachments)}
 How to answer:
 - Keep the reply focused and short enough to read in a comment thread. Use Markdown.
 - If the owner's answers or decisions mean the plan should change (they answer open questions, change scope or approach, or ask you to), return the complete revised plan in updatedPlan: the full plan text, acceptance criteria, effort, and only the questions that are still open. Say in one or two sentences of your reply what you changed. Otherwise set updatedPlan to null.
@@ -112,7 +128,7 @@ How to answer:
 Return your answer in the required JSON format.`;
 }
 
-export function implementPrompt(project: ProjectRow, item: ItemRow, key: string, discussion = ''): string {
+export function implementPrompt(project: ProjectRow, item: ItemRow, key: string, discussion = '', attachments = ''): string {
   const test = project.settings.testCommand;
   return `You are implementing one backlog item in this repository. You are working in a dedicated git worktree on branch \`${item.branch}\`; the owner's main checkout is untouched, so work freely here.
 
@@ -125,7 +141,7 @@ ${item.description || '(no description)'}
 ${item.acceptanceCriteria.length ? `\n### Acceptance criteria\n${item.acceptanceCriteria.map((c) => `- ${c}`).join('\n')}` : ''}
 ${item.plan ? `\n### Approved plan\n${item.plan}` : ''}
 ${item.openQuestions.length ? `\n### Questions the owner hasn't answered yet\nMake a sensible, reversible choice for each and call it out in your summary.\n${item.openQuestions.map((q) => `- ${q}`).join('\n')}` : ''}
-${discussionBlock(discussion)}
+${discussionBlock(discussion)}${attachmentsBlock(attachments)}
 
 ### How to deliver
 - Follow the conventions you find in the codebase (structure, naming, error handling, test style) and any CLAUDE.md / AGENTS.md guidance.
@@ -136,12 +152,16 @@ ${discussionBlock(discussion)}
 When you are done, end with a short summary for the pull request description: what changed, how it was verified, and anything the reviewer should look at closely.`;
 }
 
-export function revisePrompt(project: ProjectRow, item: ItemRow, key: string, feedback: string): string {
+/**
+ * `attachments` lists only the files sent with this change request; `attachmentsDir`
+ * points at the folder holding every attachment on the item.
+ */
+export function revisePrompt(project: ProjectRow, item: ItemRow, key: string, feedback: string, attachments = '', attachmentsDir: string | null = null): string {
   const test = project.settings.testCommand;
   return `The owner reviewed your work on ${key} ("${item.title}") and asked for changes:
 
-${feedback}
-
+${feedback || '(see the attached files)'}
+${attachmentsBlock(attachments, 'Files attached to this change request')}${attachmentsDir ? `\nEarlier attachments on this item are in \`${attachmentsDir}\`; the same reference-only rule applies to them.\n` : ''}
 Make the requested changes on the current branch, keep the tests passing${test ? ` (\`${test}\`)` : ''}, and commit them. Do not push. End with a short summary of what you changed.`;
 }
 

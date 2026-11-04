@@ -29,7 +29,7 @@ export function itemScore(row: Pick<ItemRow, 'impact' | 'effort'>): number | nul
   return Math.round((row.impact / EFFORT_POINTS[row.effort]) * 100) / 100;
 }
 
-export function toItem(row: ItemRow, keyPrefix: string, commentCount = 0): BacklogItem {
+export function toItem(row: ItemRow, keyPrefix: string, commentCount = 0, attachmentCount = 0): BacklogItem {
   return {
     id: row.id,
     projectId: row.projectId,
@@ -53,6 +53,7 @@ export function toItem(row: ItemRow, keyPrefix: string, commentCount = 0): Backl
     plan: row.plan,
     openQuestions: row.openQuestions ?? [],
     commentCount,
+    attachmentCount,
     position: row.position,
     snoozedUntil: row.snoozedUntil,
     dueDate: row.dueDate,

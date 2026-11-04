@@ -22,6 +22,13 @@
       "when": 1793211075404,
       "tag": "0002_discussion",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793781479930,
+      "tag": "0003_attachments",
+      "breakpoints": true
     }
   ]
 }
