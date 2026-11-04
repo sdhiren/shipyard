@@ -206,6 +206,32 @@ export const comments = sqliteTable(
   (t) => [index('comments_item_idx').on(t.itemId, t.createdAt)],
 );
 
+/**
+ * Files attached to an item, or to one of its comments when `commentId` is set.
+ * The bytes live under `config.attachmentsDir` at `relPath`, never in the repo.
+ * Drafts were uploaded from the discussion composer and aren't posted yet.
+ */
+export const attachments = sqliteTable(
+  'attachments',
+  {
+    id: text('id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    itemId: text('item_id')
+      .notNull()
+      .references(() => items.id, { onDelete: 'cascade' }),
+    commentId: text('comment_id').references(() => comments.id, { onDelete: 'cascade' }),
+    draft: integer('draft', { mode: 'boolean' }).notNull().default(false),
+    filename: text('filename').notNull(),
+    mimeType: text('mime_type').notNull(),
+    size: integer('size').notNull(),
+    relPath: text('rel_path').notNull(),
+    createdAt: text('created_at').notNull(),
+  },
+  (t) => [index('attachments_item_idx').on(t.itemId, t.createdAt), index('attachments_comment_idx').on(t.commentId)],
+);
+
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(),
   value: text('value', { mode: 'json' }).notNull(),
@@ -217,3 +243,4 @@ export type RunRow = typeof runs.$inferSelect;
 export type AnalysisRow = typeof analyses.$inferSelect;
 export type ActivityRow = typeof activity.$inferSelect;
 export type CommentRow = typeof comments.$inferSelect;
+export type AttachmentRow = typeof attachments.$inferSelect;

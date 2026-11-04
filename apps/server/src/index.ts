@@ -2,6 +2,7 @@ import { buildApp } from './app.js';
 import { config } from './config.js';
 import { closeDb, runMigrations } from './db/client.js';
 import { recoverInterruptedAnalyses } from './services/agent.js';
+import { pruneDrafts } from './services/attachments.js';
 import { backfillOpenQuestions } from './services/items.js';
 import { startPrTracker, stopPrTracker } from './services/pr-tracker.js';
 import { recoverInterruptedRuns } from './services/runs.js';
@@ -10,6 +11,9 @@ runMigrations();
 const movedQuestions = backfillOpenQuestions();
 const app = await buildApp();
 if (movedQuestions) app.log.info(`Moved open questions out of ${movedQuestions} plan(s)`);
+
+const prunedDrafts = pruneDrafts();
+if (prunedDrafts) app.log.info(`Pruned ${prunedDrafts} unposted draft attachment(s)`);
 
 const interrupted = recoverInterruptedRuns();
 recoverInterruptedAnalyses();
